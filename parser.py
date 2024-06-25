@@ -2,6 +2,7 @@ import time
 from enum import IntEnum
 from typing import Optional, List, Tuple, Dict
 import re
+from collections import OrderedDict
 
 from bs4 import BeautifulSoup, PageElement
 
@@ -43,6 +44,13 @@ class Smil:
         return f"Name: {self.name}, path: {self.path}"
 
 
+patterns = {
+    'get_audio_src': r'<audio[^>]*\ssrc="([^"]+)"',  # Получаем значение атрибута src в теге audio
+    'get_smil_name': r'href="([^"]+\.smil)#',  # Получаем название smil из ncc.html в виде s0002.smil
+    'get_audio_interval': r'<audio[^>]*src="[^"]+"[^>]*clip-begin="npt=([0-9]+(?:\.[0-9]*)?)s"[^>]*clip-end="npt=([0-9]+(?:\.[0-9]*)?)s"[^>]*>'  # Получаем временной интервал
+}
+
+
 class DaisyParser:
     """
     Будем считать, что отдельный smil относится к
@@ -53,7 +61,7 @@ class DaisyParser:
     _nav_option: NavOption
     _smils: List[Smil]
     _ncc_soup: BeautifulSoup
-    _audios_smils: Dict[str, Tuple[int, Smil]]  # Словарь, где ключ - путь к аудиофайлу, а значение - массив с позицией данного файла и соответствующим smil
+    _audios_smils: Dict[str, Tuple[int, str]]  # Словарь, где ключ - путь к аудиофайлу, а значение - массив с позицией данного файла и соответствующим именем smil
     _positions_audios: Dict[int, str]  # Словарь где мы храним порядковый номер каждого аудио как ключ и путь к аудио - как значение
 
     def __init__(self, folder_path: str):
@@ -68,36 +76,31 @@ class DaisyParser:
         self.folder_path = folder_path
         self._nav_option = NavOption.PHRASE
         self._smils = []
-        self._set_ncc_soup()
+        # self._set_ncc_soup()
         self._audios_smils = {}
         self._positions_audios = {}
-        self._set_audios_smils()
+        self._prepare_dicts()
+        print(self._audios_smils)
+        print('\n\n\n')
+        print(self._positions_audios)
+        print('\n\n\n')
         end_time = time.time()
         print(f'\nTotal parse time: {end_time - start_time:0.4f} seconds\n')
 
-    def _set_ncc_soup(self) -> None:
-        ncc_content = self.try_open(f"{self.folder_path}/ncc.html")
-        if not ncc_content:
-            raise ValueError(f"Отсутствует основной файл ncc.html в папке {self.folder_path}")
-        self._ncc_soup = BeautifulSoup(ncc_content, 'html.parser')
-
-    def _set_audios_smils(self) -> None:
-        anchors = self._ncc_soup.find_all('a')
-        found_smil_names: List[str] = []
+    def _prepare_dicts(self):
+        """
+        1) Получаем словарь позиция - путь аудио
+        2) Получаем словарь путь аудио - (путь smil, позиция)
+        """
+        ncc_content = self.try_open(f'{self.folder_path}/ncc.html')
+        smil_names = list(OrderedDict.fromkeys(re.findall(patterns['get_smil_name'], ncc_content)))
+        print(smil_names)
         current_smil_position: int = 1
-        for a_tag in anchors:
-            href = a_tag.get('href')
-            if href and '.smil#' in href:
-                smil_name = href.split('#')[0]
-                if smil_name not in found_smil_names:
-                    found_smil_names.append(smil_name)
-                    new_smil: Smil = Smil(smil_name, f'{self.folder_path}/{smil_name}')
-
-                    # Ищем любой тэг audio с помощью регулярок
-                    if corresponding_audio_name := self.find_audio_name(new_smil.path):
-                        self._positions_audios[current_smil_position] = corresponding_audio_name
-                        self._audios_smils[corresponding_audio_name] = current_smil_position, new_smil
-                        current_smil_position += 1
+        for name in smil_names:
+            if corresponding_audio_name := self.find_audio_name(f"{self.folder_path}/{name}"):
+                self._positions_audios[current_smil_position] = corresponding_audio_name
+                self._audios_smils[corresponding_audio_name] = current_smil_position, name
+                current_smil_position += 1
 
     @staticmethod
     def find_audio_name(smil_path) -> Optional[str]:
@@ -110,7 +113,7 @@ class DaisyParser:
             try:
                 with open(smil_path, 'r', encoding=encoding) as file:
                     for line in file:
-                        match = re.search(r'<audio[^>]*\ssrc="([^"]+)"', line)
+                        match = re.search(patterns['get_audio_src'], line)
                         if match:
                             return match.group(1)
             except (UnicodeDecodeError, LookupError):
@@ -228,7 +231,7 @@ class DaisyParser:
 
     @staticmethod
     def try_open(file_path) -> Optional[str]:
-        encodings = ['utf-8', 'cp1251', 'latin-1', 'ansi']
+        encodings = ['utf-8', 'ansi', 'cp1251', 'latin-1']
         for encoding in encodings:
             try:
                 with open(file_path, 'r', encoding=encoding) as file:
@@ -239,12 +242,12 @@ class DaisyParser:
 
 
 parser = DaisyParser("frontpage")
-start_time = time.time()
-file_to_use, time_start, time_end = parser.get_next("823_r.mp3", 46.3)
-print(f"File: {file_to_use}, start time: {time_start}, end time: {time_end}")
-file_to_use_next, new_time_start, new_time_end = parser.get_next(file_to_use, time_start)
-print(f"New file: {file_to_use_next}, new start time: {new_time_start}, new end time: {new_time_end}")
-file_to_use_3, time_start_3, time_end_3 = parser.get_next(file_to_use_next, new_time_start)
-print(f"New file: {file_to_use_3}, new start time: {time_start_3}, new end time: {time_end_3}")
-end_time = time.time()
-print(f"Время между 3 запросами: {end_time - start_time}")
+# start_time = time.time()
+# file_to_use, time_start, time_end = parser.get_next("823_r.mp3", 46.3)
+# print(f"File: {file_to_use}, start time: {time_start}, end time: {time_end}")
+# file_to_use_next, new_time_start, new_time_end = parser.get_next(file_to_use, time_start)
+# print(f"New file: {file_to_use_next}, new start time: {new_time_start}, new end time: {new_time_end}")
+# file_to_use_3, time_start_3, time_end_3 = parser.get_next(file_to_use_next, new_time_start)
+# print(f"New file: {file_to_use_3}, new start time: {time_start_3}, new end time: {time_end_3}")
+# end_time = time.time()
+# print(f"Время между 3 запросами: {end_time - start_time}")
