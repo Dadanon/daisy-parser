@@ -1,3 +1,4 @@
+import itertools
 import time
 from enum import IntEnum
 from typing import Optional, List, Tuple, Dict
@@ -17,7 +18,7 @@ class NavigationItem:
     number: int  # Порядковый номер
     name: Optional[str]  # Название для проговаривания при навигации, отсутствует для фраз
     fragment_name: str  # Имя конкретного mp3-файла, в котором находится этот экземпляр
-    time_start: float  # Время от начала относительно текущего mp3-файла
+    time_start_1: float  # Время от начала относительно текущего mp3-файла
     elapsed_time: float  # Время от начала относительно начала книги
     fragment_duration: float  # Длительность текущего mp3-файла
 
@@ -125,6 +126,12 @@ class DaisyParser:
         """
         self._nav_option = nav_option
 
+    def _get_smil_content_and_position(self, audio_path: str) -> Tuple[str, int]:
+        position, smil_name = self._audios_smils.get(audio_path)
+        if not position or not smil_name:
+            raise ValueError(f"Данному mp3-файлу {audio_path} не присвоен соответствующий smil")
+        return self.try_open(f"{self.folder_path}/{smil_name}"), position
+
     def get_next(self, current_audio_path: str, current_time: float):
         """
         Метод API, при нажатии кнопки вправо мы вызываем этот
@@ -133,15 +140,20 @@ class DaisyParser:
         """
         return self.get_next_phrase(current_audio_path, current_time)
 
+    def get_prev(self, current_audio_path: str, current_time: float):
+        """
+        Метод API, при нажатии кнопки влево мы вызываем этот
+        метод, передавая в сигнатуру текущий путь проигрываемого
+        MP3-фрагмента и время от начала проигрывания
+        """
+        return self.get_prev_phrase(current_audio_path, current_time)
+
     def get_next_phrase(self, current_audio_path: str, current_time: float) -> Optional[Tuple[str, float, float]]:
         """Ищет audio тэг, в интервал которого попадает current_time.\n
         1. Для следующего audio тега возвращает имя mp3, время начала и время конца.\n
         2. Если следующий audio тег не найден - ищет в следующем по порядку smil файле.\n
         3. Если первоначальный smil был последним - возвращает None"""
-        position, smil_name = self._audios_smils.get(current_audio_path)
-        if not position or not smil_name:
-            raise ValueError(f"Данному mp3-файлу {current_audio_path} не присвоен соответствующий smil")
-        smil_content = self.try_open(f"{self.folder_path}/{smil_name}")
+        smil_content, position = self._get_smil_content_and_position(current_audio_path)
         matches = re.finditer(patterns['get_audio_info'], smil_content)
         for match in matches:
             clip_begin = float(match.group(2))
@@ -153,22 +165,43 @@ class DaisyParser:
                 except StopIteration:
                     next_audio_path: str = self._positions_audios.get(position + 1)
                     if next_audio_path:
-                        next_position, next_smil_name = self._audios_smils.get(next_audio_path)
-                        if not next_position or not next_smil_name:
-                            raise ValueError(f"Данному mp3-файлу {next_audio_path} не присвоен соответствующий smil")
-                        next_smil_content = self.try_open(f"{self.folder_path}/{next_smil_name}")
+                        next_smil_content, _ = self._get_smil_content_and_position(next_audio_path)
                         next_audio_info = re.search(patterns['get_audio_info'], next_smil_content)
                         if next_audio_info:
                             return next_audio_info.group(1), float(next_audio_info.group(2)), float(next_audio_info.group(3))  # 2 вариант
 
-    def _get_prev_phrase(self, current_audio_path: str, current_time: float) -> Optional[Tuple[Optional[str], float]]:
-        """
-        Получаем предыдущую фразу, учитывая текущий проигрываемый
-        фрагмент и время воспроизведения
+    def get_prev_phrase(self, current_audio_path: str, current_time: float) -> Optional[Tuple[str, float, float]]:
+        """Ищет audio тэг, в интервал которого попадает current_time.\n
+        1. Для предыдущего audio тега возвращает имя mp3, время начала и время конца.\n
+        2. Если предыдущий audio тег не найден - ищет в предыдущем по порядку smil файле.\n
+        3. Если первоначальный smil был первым - возвращает None"""
+        check_first_audio: bool = True
+        smil_content, position = self._get_smil_content_and_position(current_audio_path)
+        matches = re.finditer(patterns['get_audio_info'], smil_content)
+        for match, next_match in self._pairwise(matches):
+            if check_first_audio:
+                clip_begin = float(match.group(2))
+                clip_end = float(match.group(3))
+                if clip_begin <= current_time < clip_end:
+                    if position > 1:
+                        prev_audio_path: str = self._positions_audios.get(position - 1)
+                        if prev_audio_path:
+                            prev_smil_content, _ = self._get_smil_content_and_position(prev_audio_path)
+                            next_matches = re.finditer(patterns['get_audio_info'], prev_smil_content)
+                            *_, last = next_matches
+                            return last.group(1), float(last.group(2)), float(last.group(3))  # 2 вариант
+            if next_match:
+                clip_begin = float(next_match.group(2))
+                clip_end = float(next_match.group(3))
+                if clip_begin <= current_time < clip_end:
+                    return match.group(1), float(match.group(2)), float(match.group(3))  # 1 вариант
 
-        :return:
-        """
-        ...
+    @staticmethod
+    def _pairwise(iterable):
+        """Выдает пару элементов из итератора, чтобы иметь возможность осуществлять поиск в предыдущем значении"""
+        a, b = itertools.tee(iterable)
+        next(b, None)
+        return zip(a, b)
 
     @staticmethod
     def try_open(file_path) -> str:
@@ -184,11 +217,23 @@ class DaisyParser:
 
 parser = DaisyParser("frontpage")
 start_time = time.time()
-file_to_use, time_start, time_end = parser.get_next("823_r.mp3", 456.5)
-print(f"File: {file_to_use}, start time: {time_start}, end time: {time_end}")
-file_to_use_next, new_time_start, new_time_end = parser.get_next(file_to_use, time_start)
-print(f"New file: {file_to_use_next}, new start time: {new_time_start}, new end time: {new_time_end}")
-file_to_use_3, time_start_3, time_end_3 = parser.get_next(file_to_use_next, new_time_start)
+file_to_use_1, time_start_1, time_end_1 = parser.get_next("823_r.mp3", 456.5)
+print(f"File: {file_to_use_1}, start time: {time_start_1}, end time: {time_end_1}")
+file_to_use_2, time_start_2, time_end_2 = parser.get_next(file_to_use_1, time_start_1)
+print(f"New file: {file_to_use_2}, new start time: {time_start_2}, new end time: {time_end_2}")
+file_to_use_3, time_start_3, time_end_3 = parser.get_next(file_to_use_2, time_start_2)
 print(f"New file: {file_to_use_3}, new start time: {time_start_3}, new end time: {time_end_3}")
+end_time = time.time()
+print(f"Время между 3 запросами: {end_time - start_time}")
+
+print('\n\n\n')
+
+start_time = time.time()
+file_to_use_2, time_start_2, time_end_2 = parser.get_prev(file_to_use_3, time_start_3)
+print(f"File: {file_to_use_2}, start time: {time_start_2}, end time: {time_end_2}")
+file_to_use_1, time_start_1, time_end_1 = parser.get_prev(file_to_use_2, time_start_2)
+print(f"New file: {file_to_use_1}, new start time: {time_start_1}, new end time: {time_end_1}")
+file_to_use_0, time_start_0, time_end_0 = parser.get_prev(file_to_use_1, time_start_1)
+print(f"New file: {file_to_use_0}, new start time: {time_start_0}, new end time: {time_end_0}")
 end_time = time.time()
 print(f"Время между 3 запросами: {end_time - start_time}")
