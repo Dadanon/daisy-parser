@@ -84,8 +84,7 @@ class DaisyParser:
         matches = re.finditer(pattern, self._ncc_content)
         return matches
 
-    def find_next_prev_heading_from_position(self, position: int, direction: Union[Literal[1], Literal[-1]] = 1) -> \
-            Optional[re.Match[str]]:
+    def find_next_prev_heading_from_position(self, position: int, direction: Union[Literal[1], Literal[-1]] = 1) -> Optional[re.Match[str]]:
         """По умолчанию ищет следующий заголовок после position в ncc.html\n
         Если direction = -1 - ищет предыдущий заголовок до position"""
         ncc_content = self._ncc_content[position + 1:] if direction == 1 else self._ncc_content[:position]
@@ -172,7 +171,7 @@ class DaisyParser:
             case NavOption.HEADING:
                 return self._get_prev_heading(current_audio_path, current_time)
             case NavOption.PAGE:
-                ...
+                return self._get_prev_page(current_audio_path, current_time)
 
     def _get_next_page(self, current_audio_path: str, current_time: float) -> Optional[NavText]:
         """
@@ -195,34 +194,86 @@ class DaisyParser:
                 audio_chunk_pos = match.start()
                 break
 
-        search_smil_content, search_position, search_smil_name, audio_path = smil_content, position, smil_name, current_audio_path
-        while audio_path is not None:
+        search_smil_content, search_position, search_smil_name, search_audio_path = smil_content, position, smil_name, current_audio_path
+        while search_audio_path is not None:
             smil_pages = self.find_pages_by_prefix(search_smil_name)
             for p in smil_pages:
                 p_text_id, p_text = p.group(1).split('#')[-1], p.group(2)
                 p_text_id_smil_pos = self.get_id_position_in_text(p_text_id, search_smil_content)
                 if p_text_id_smil_pos > audio_chunk_pos:
                     next_audio_chunk = re.search(patterns['get_audio_info'], search_smil_content[p_text_id_smil_pos:])
-                    nav_text: NavText = NavText(p_text, audio_path, float(next_audio_chunk.group(2)),
+                    nav_text: NavText = NavText(p_text, search_audio_path, float(next_audio_chunk.group(2)),
                                                 float(next_audio_chunk.group(3)))
                     return nav_text
             # Обнуление
             audio_chunk_pos = 0
-            audio_path = self._positions_audios.get(search_position + 1)
+            search_audio_path = self._positions_audios.get(search_position + 1)
             search_position += 1
-            search_smil_content, search_position, search_smil_name = self._get_smil_content_position_name(audio_path)
+            search_smil_content, search_position, search_smil_name = self._get_smil_content_position_name(search_audio_path)
 
-    # def _get_prev_page(self, current_audio_path: str, current_time: float) -> Optional[NavText]:
-    #     """
-    #     1) Получаем соответствующий smil и позицию соответствующего аудио кусочка
-    #     2) Находим первый тэг span в ncc.html, соответствующий данному smil,
-    #     получаем id элемента в теге span и ищем позицию этого id в данном smil
-    #     3) Если тег из пункта 2 не найден или позиция из п.2 ниже позиции из п.1 - в цикле while прибавляем
-    #     по 1 к позиции smil из п.1, пока в файле ncc.html не будет найден тег span, принадлежащий очередному smil
-    #     4) Получаем id элемента в теге span
-    #     5) Находим позицию элемента с id из п.4 в соответствующем smil
-    #     6) Находим следующий тег audio и возвращаем соответствующий NavText
-    #     """
+    def test_pos(self, current_audio_path: str, current_time: float) -> int:
+        search_smil_content, _, _ = self._get_smil_content_position_name(current_audio_path)
+        return self._get_audio_chunk_pos(search_smil_content, current_time)
+
+    def _get_prev_page(self, current_audio_path: str, current_time: float) -> Optional[NavText]:
+        """
+        1) Получаем соответствующий smil соответствующего аудио кусочка
+        2) Находим предыдущий аудио кусочек, получаем его позицию
+        3) Проходим по тегам span в ncc.html, соответствующим текущему smil,
+        получаем id элемента в теге span и ищем позицию этого id в данном smil
+        3) Если теги из пункта 3 не найдены или их позиция из п.3 выше позиции из п.2 - в цикле while отнимаем
+        1 от позиции smil из п.1, пока в файле ncc.html не будет найден тег span, принадлежащий очередному smil
+        4) Получаем id элемента в теге span
+        5) Находим позицию элемента с id из п.4 в соответствующем smil
+        6) Находим следующий тег audio и возвращаем соответствующий NavText
+        """
+        print(f'Current audio path: {current_audio_path}, current_time: {current_time}')
+        search_smil_content, search_position, search_smil_name = self._get_smil_content_position_name(current_audio_path)
+        search_audio_path = current_audio_path
+        audio_chunk_pos: Optional[int] = None
+        matches = re.finditer(patterns['get_audio_info'], search_smil_content)
+        for match in matches:
+            clip_begin = float(match.group(2))
+            clip_end = float(match.group(3))
+            if clip_begin <= current_time < clip_end:
+                if clip_begin != 0:
+                    cur_pos = match.start()
+                    matches_slice = re.finditer(patterns['get_audio_info'], search_smil_content[:cur_pos])
+                    *_, last = matches_slice
+                    audio_chunk_pos = last.start()
+                    break
+                else:
+                    if search_position <= 1:
+                        return None
+                    search_audio_path = self._positions_audios.get(search_position - 1)
+                    search_smil_content, search_position, search_smil_name = self._get_smil_content_position_name(search_audio_path)
+                    prev_matches = re.finditer(patterns['get_audio_info'], search_smil_content)
+                    *_, last = prev_matches
+                    audio_chunk_pos = last.start()
+                    break
+
+        while search_audio_path is not None:
+            smil_pages = self.find_pages_by_prefix(search_smil_name)
+            try:
+                *_, p = smil_pages
+                # for p in smil_pages:
+                p_text_id, p_text = p.group(1).split('#')[-1], p.group(2)
+                p_text_id_smil_pos = self.get_id_position_in_text(p_text_id, search_smil_content)
+                if not audio_chunk_pos or p_text_id_smil_pos < audio_chunk_pos:
+                    prev_matches = re.finditer(patterns['get_audio_info'], search_smil_content[:p_text_id_smil_pos])
+                    *_, prev_audio_chunk = prev_matches
+                    nav_text: NavText = NavText(p_text, search_audio_path, float(prev_audio_chunk.group(2)),
+                                                float(prev_audio_chunk.group(3)))
+                    return nav_text
+            except ValueError:
+                pass
+            # Обнуление
+            audio_chunk_pos = None
+            search_audio_path = self._positions_audios.get(search_position - 1)
+            search_position -= 1
+            if search_position == 1:
+                return None
+            search_smil_content, search_position, search_smil_name = self._get_smil_content_position_name(search_audio_path)
 
     def _get_next_heading(self, current_audio_path: str, current_time: float) -> Optional[NavText]:
         """
@@ -437,73 +488,76 @@ class DaisyParser:
 def test_book(folder_path: str, audio_path: str, current_time: float):
     parser = DaisyParser(folder_path)
 
-    parser.set_nav_option(NavOption.HEADING)
-
-    start_time = time.time()
-    nav_heading_1: NavText = parser.get_next(audio_path, current_time)
-    print(nav_heading_1.text)
-    print(nav_heading_1.__dict__)
-    nav_heading_2: NavText = parser.get_next(nav_heading_1.audio_path, nav_heading_1.start_time)
-    print(nav_heading_2.text)
-    print(nav_heading_2.__dict__)
-    nav_heading_3: NavText = parser.get_next(nav_heading_2.audio_path, nav_heading_2.start_time)
-    print(nav_heading_3.text)
-    print(nav_heading_3.__dict__)
-    end_time = time.time()
-    print(f"Время между 3 запросами: {end_time - start_time}\n")
-
-    start_time = time.time()
-    nav_heading_3: NavText = parser.get_prev(audio_path, current_time)
-    print(nav_heading_3.text)
-    print(nav_heading_3.__dict__)
-    nav_heading_2: NavText = parser.get_prev(nav_heading_3.audio_path, nav_heading_3.start_time)
-    print(nav_heading_2.text)
-    print(nav_heading_2.__dict__)
-    nav_heading_1: NavText = parser.get_prev(nav_heading_2.audio_path, nav_heading_2.start_time)
-    print(nav_heading_1.text)
-    print(nav_heading_1.__dict__)
-    end_time = time.time()
-    print(f"Время между 3 запросами: {end_time - start_time}\n")
-
-    parser.set_nav_option(NavOption.PHRASE)
-
-    start_time = time.time()
-    nav_phrase_1: NavPhrase = parser.get_next(audio_path, current_time)
-    print(nav_phrase_1.__dict__)
-    nav_phrase_2: NavPhrase = parser.get_next(nav_phrase_1.audio_path, nav_phrase_1.start_time)
-    print(nav_phrase_2.__dict__)
-    nav_phrase_3: NavPhrase = parser.get_next(nav_phrase_2.audio_path, nav_phrase_2.start_time)
-    print(nav_phrase_3.__dict__)
-    end_time = time.time()
-    print(f"Время между 3 запросами: {end_time - start_time}\n")
-
-    start_time = time.time()
-    nav_phrase_2: NavPhrase = parser.get_prev(audio_path, current_time)
-    print(nav_phrase_2.__dict__)
-    nav_phrase_1: NavPhrase = parser.get_prev(nav_phrase_2.audio_path, nav_phrase_2.start_time)
-    print(nav_phrase_1.__dict__)
-    nav_phrase_0: NavPhrase = parser.get_prev(nav_phrase_1.audio_path, nav_phrase_1.start_time)
-    print(nav_phrase_0.__dict__)
-    end_time = time.time()
-    print(f"Время между 3 запросами: {end_time - start_time}\n")
+    # parser.set_nav_option(NavOption.HEADING)
+    #
+    # start_time = time.time()
+    # nav_heading_1: NavText = parser.get_next(audio_path, current_time)
+    # print(nav_heading_1.__dict__)
+    # nav_heading_2: NavText = parser.get_next(nav_heading_1.audio_path, nav_heading_1.start_time)
+    # print(nav_heading_2.__dict__)
+    # nav_heading_3: NavText = parser.get_next(nav_heading_2.audio_path, nav_heading_2.start_time)
+    # print(nav_heading_3.__dict__)
+    # end_time = time.time()
+    # print(f"Время между 3 запросами: {end_time - start_time}\n")
+    #
+    # start_time = time.time()
+    # nav_heading_3: NavText = parser.get_prev(audio_path, current_time)
+    # print(nav_heading_3.__dict__)
+    # nav_heading_2: NavText = parser.get_prev(nav_heading_3.audio_path, nav_heading_3.start_time)
+    # print(nav_heading_2.__dict__)
+    # nav_heading_1: NavText = parser.get_prev(nav_heading_2.audio_path, nav_heading_2.start_time)
+    # print(nav_heading_1.__dict__)
+    # end_time = time.time()
+    # print(f"Время между 3 запросами: {end_time - start_time}\n")
+    #
+    # parser.set_nav_option(NavOption.PHRASE)
+    #
+    # start_time = time.time()
+    # nav_phrase_1: NavPhrase = parser.get_next(audio_path, current_time)
+    # print(nav_phrase_1.__dict__)
+    # nav_phrase_2: NavPhrase = parser.get_next(nav_phrase_1.audio_path, nav_phrase_1.start_time)
+    # print(nav_phrase_2.__dict__)
+    # nav_phrase_3: NavPhrase = parser.get_next(nav_phrase_2.audio_path, nav_phrase_2.start_time)
+    # print(nav_phrase_3.__dict__)
+    # end_time = time.time()
+    # print(f"Время между 3 запросами: {end_time - start_time}\n")
+    #
+    # start_time = time.time()
+    # nav_phrase_2: NavPhrase = parser.get_prev(audio_path, current_time)
+    # print(nav_phrase_2.__dict__)
+    # nav_phrase_1: NavPhrase = parser.get_prev(nav_phrase_2.audio_path, nav_phrase_2.start_time)
+    # print(nav_phrase_1.__dict__)
+    # nav_phrase_0: NavPhrase = parser.get_prev(nav_phrase_1.audio_path, nav_phrase_1.start_time)
+    # print(nav_phrase_0.__dict__)
+    # end_time = time.time()
+    # print(f"Время между 3 запросами: {end_time - start_time}\n")
 
     parser.set_nav_option(NavOption.PAGE)
 
-    start_time = time.time()
-    nav_page_1: NavText = parser.get_next(audio_path, current_time)
-    print(nav_page_1.text)
-    print(nav_page_1.__dict__)
-    nav_page_2: NavText = parser.get_next(nav_page_1.audio_path, nav_page_1.start_time)
-    print(nav_page_2.text)
-    print(nav_page_2.__dict__)
-    nav_page_3: NavText = parser.get_next(nav_page_2.audio_path, nav_page_2.start_time)
-    print(nav_page_3.text)
-    print(nav_page_3.__dict__)
-    end_time = time.time()
-    print(f"Время между 3 запросами: {end_time - start_time}\n")
+    # start_time = time.time()
+    # nav_page_1: NavText = parser.get_next(audio_path, current_time)
+    # print(nav_page_1.__dict__)
+    # nav_page_2: NavText = parser.get_next(nav_page_1.audio_path, nav_page_1.start_time)
+    # print(nav_page_2.__dict__)
+    # nav_page_3: NavText = parser.get_next(nav_page_2.audio_path, nav_page_2.start_time)
+    # print(nav_page_3.__dict__)
+    # end_time = time.time()
+    # print(f"Время между 3 запросами: {end_time - start_time}\n")
+
+    # start_time = time.time()
+    # nav_page_3: NavText = parser.get_prev(audio_path, current_time)
+    # print(nav_page_3.__dict__)
+    # nav_page_2: NavText = parser.get_prev(nav_page_3.audio_path, nav_page_3.start_time)
+    # print(nav_page_2.__dict__)
+    # nav_page_1: NavText = parser.get_prev(nav_page_2.audio_path, nav_page_2.start_time)
+    # print(nav_page_1.__dict__)
+    # end_time = time.time()
+    # print(f"Время между 3 запросами: {end_time - start_time}\n")
+    print(parser.test_pos(audio_path, current_time))
 
 
 FRONTPAGE = ['frontpage', '823_r.mp3', 456.5]
 TEST_BOOK = ['test_book', '08_26th_.mp3', 263]
 
 test_book(*FRONTPAGE)
+
