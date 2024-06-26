@@ -78,6 +78,12 @@ class DaisyParser:
         matches = re.finditer(pattern, self._ncc_content)
         return matches
 
+    def find_pages_by_prefix(self, smil_name: str) -> Iterator[re.Match[str]]:
+        """Получить итератор страниц, встречающихся в файле smil со smil_name"""
+        pattern = rf'<span class="[^"]*" id="[^"]*"><a href="({smil_name}[^"]*)">([^<]*)</a></span>'
+        matches = re.finditer(pattern, self._ncc_content)
+        return matches
+
     def find_next_prev_heading_from_position(self, position: int, direction: Union[Literal[1], Literal[-1]] = 1) -> \
             Optional[re.Match[str]]:
         """По умолчанию ищет следующий заголовок после position в ncc.html\n
@@ -152,7 +158,7 @@ class DaisyParser:
             case NavOption.HEADING:
                 return self._get_next_heading(current_audio_path, current_time)
             case NavOption.PAGE:
-                ...
+                return self._get_next_page(current_audio_path, current_time)
 
     def get_prev(self, current_audio_path: str, current_time: float):
         """
@@ -167,6 +173,56 @@ class DaisyParser:
                 return self._get_prev_heading(current_audio_path, current_time)
             case NavOption.PAGE:
                 ...
+
+    def _get_next_page(self, current_audio_path: str, current_time: float) -> Optional[NavText]:
+        """
+        1) Получаем соответствующий smil и позицию соответствующего аудио кусочка
+        2) Находим первый тэг span в ncc.html, соответствующий данному smil,
+        получаем id элемента в теге span и ищем позицию этого id в данном smil
+        3) Если тег из пункта 2 не найден или позиция из п.2 ниже позиции из п.1 - в цикле while прибавляем
+        по 1 к позиции smil из п.1, пока в файле ncc.html не будет найден тег span, принадлежащий очередному smil
+        4) Получаем id элемента в теге span
+        5) Находим позицию элемента с id из п.4 в соответствующем smil
+        6) Находим следующий тег audio и возвращаем соответствующий NavText
+        """
+        smil_content, position, smil_name = self._get_smil_content_position_name(current_audio_path)
+        audio_chunk_pos: Optional[int] = None
+        matches = re.finditer(patterns['get_audio_info'], smil_content)
+        for match in matches:
+            clip_begin = float(match.group(2))
+            clip_end = float(match.group(3))
+            if clip_begin <= current_time < clip_end:
+                audio_chunk_pos = match.start()
+                break
+
+        search_smil_content, search_position, search_smil_name, audio_path = smil_content, position, smil_name, current_audio_path
+        while audio_path is not None:
+            smil_pages = self.find_pages_by_prefix(search_smil_name)
+            for p in smil_pages:
+                p_text_id, p_text = p.group(1).split('#')[-1], p.group(2)
+                p_text_id_smil_pos = self.get_id_position_in_text(p_text_id, search_smil_content)
+                if p_text_id_smil_pos > audio_chunk_pos:
+                    next_audio_chunk = re.search(patterns['get_audio_info'], search_smil_content[p_text_id_smil_pos:])
+                    nav_text: NavText = NavText(p_text, audio_path, float(next_audio_chunk.group(2)),
+                                                float(next_audio_chunk.group(3)))
+                    return nav_text
+            # Обнуление
+            audio_chunk_pos = 0
+            audio_path = self._positions_audios.get(search_position + 1)
+            search_position += 1
+            search_smil_content, search_position, search_smil_name = self._get_smil_content_position_name(audio_path)
+
+    # def _get_prev_page(self, current_audio_path: str, current_time: float) -> Optional[NavText]:
+    #     """
+    #     1) Получаем соответствующий smil и позицию соответствующего аудио кусочка
+    #     2) Находим первый тэг span в ncc.html, соответствующий данному smil,
+    #     получаем id элемента в теге span и ищем позицию этого id в данном smil
+    #     3) Если тег из пункта 2 не найден или позиция из п.2 ниже позиции из п.1 - в цикле while прибавляем
+    #     по 1 к позиции smil из п.1, пока в файле ncc.html не будет найден тег span, принадлежащий очередному smil
+    #     4) Получаем id элемента в теге span
+    #     5) Находим позицию элемента с id из п.4 в соответствующем smil
+    #     6) Находим следующий тег audio и возвращаем соответствующий NavText
+    #     """
 
     def _get_next_heading(self, current_audio_path: str, current_time: float) -> Optional[NavText]:
         """
@@ -428,6 +484,21 @@ def test_book(folder_path: str, audio_path: str, current_time: float):
     print(nav_phrase_1.__dict__)
     nav_phrase_0: NavPhrase = parser.get_prev(nav_phrase_1.audio_path, nav_phrase_1.start_time)
     print(nav_phrase_0.__dict__)
+    end_time = time.time()
+    print(f"Время между 3 запросами: {end_time - start_time}\n")
+
+    parser.set_nav_option(NavOption.PAGE)
+
+    start_time = time.time()
+    nav_page_1: NavText = parser.get_next(audio_path, current_time)
+    print(nav_page_1.text)
+    print(nav_page_1.__dict__)
+    nav_page_2: NavText = parser.get_next(nav_page_1.audio_path, nav_page_1.start_time)
+    print(nav_page_2.text)
+    print(nav_page_2.__dict__)
+    nav_page_3: NavText = parser.get_next(nav_page_2.audio_path, nav_page_2.start_time)
+    print(nav_page_3.text)
+    print(nav_page_3.__dict__)
     end_time = time.time()
     print(f"Время между 3 запросами: {end_time - start_time}\n")
 
