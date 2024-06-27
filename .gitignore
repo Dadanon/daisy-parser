@@ -3,3 +3,4 @@ frontpage/
 test_book/
 daisy_3/
 .idea/
+__pycache__/
