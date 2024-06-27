@@ -89,10 +89,20 @@ def test_book_v3(folder_path: str, audio_path: str, current_time: float):
     end_time = time.time()
     print(f"Время между 3 запросами: {end_time - start_time}\n")
 
+    start_time = time.time()
+    nav_page_3: NavItem = parser.get_prev(audio_path, current_time)
+    print(nav_page_3.__dict__)
+    nav_page_2: NavItem = parser.get_prev(nav_page_3.audio_path, nav_page_3.start_time)
+    print(nav_page_2.__dict__)
+    nav_page_1: NavItem = parser.get_prev(nav_page_2.audio_path, nav_page_2.start_time)
+    print(nav_page_1.__dict__)
+    end_time = time.time()
+    print(f"Время между 3 запросами: {end_time - start_time}\n")
+
 
 FRONTPAGE = ['frontpage', '823_r.mp3', 456.5]
 TEST_BOOK = ['test_book', '08_26th_.mp3', 263]
-DAISY_3 = ['daisy_3', 'speechgen0002.mp3', 15]
+DAISY_3 = ['daisy_3', 'speechgen0007.mp3', 15]
 
 # test_book(*FRONTPAGE)
 test_book_v3(*DAISY_3)

@@ -77,13 +77,24 @@ class DaisyParser:
 
     def _get_prev_page_v3(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
         received_audio_index = self.get_audio_path_index(current_audio_path)
-        for cur, nex in _pairwise(self.page_list_block):
-            nex_page_audio_info = nex.group(2)
+        for cur, nex in _pairwise_list(self.page_list_block):
+            nex_page_audio_info = nex[1]
             nex_src_match = re.search(patterns['get_src'], nex_page_audio_info)
             if nex_src_match:
                 nex_src = nex_src_match.group(1)
                 if self.get_audio_path_index(nex_src) == received_audio_index:
-                    ...
+                    nex_time_end_str_match = re.search(patterns['get_clip_end'], nex_page_audio_info)
+                    if nex_time_end_str_match:
+                        nex_time_end = time_str_to_seconds(nex_time_end_str_match.group(1))
+                        if nex_time_end < current_time:
+                            nav_item = _get_nav_page_from_match(nex)
+                            return nav_item
+                        else:
+                            nav_item = _get_nav_page_from_match(cur)
+                            return nav_item
+                elif self.get_audio_path_index(nex_src) > received_audio_index:
+                    nav_item = _get_nav_page_from_match(cur)
+                    return nav_item
 
     def get_audios_list(self):
         sorted_keys = iter(sorted(self._positions_audios))
@@ -245,7 +256,11 @@ class DaisyParser:
             case NavOption.HEADING:
                 return self._get_prev_heading(current_audio_path, current_time)
             case NavOption.PAGE:
-                return self._get_prev_page(current_audio_path, current_time)
+                match self.version:
+                    case '2.02':
+                        return self._get_prev_page(current_audio_path, current_time)
+                    case '3.0':
+                        return self._get_prev_page_v3(current_audio_path, current_time)
 
     def _get_next_page(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
         """
