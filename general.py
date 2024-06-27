@@ -89,6 +89,10 @@ def _pairwise(iterable):
     return zip(a, b)
 
 
+def _pairwise_list(lst):
+    return [(lst[i], lst[i + 1]) for i in range(len(lst) - 1)]
+
+
 def try_open(file_path) -> str:
     encodings = ['utf-8', 'ansi', 'cp1251', 'latin-1']
     for encoding in encodings:

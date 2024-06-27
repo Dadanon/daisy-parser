@@ -4,9 +4,9 @@ from typing import Optional, Tuple, Dict, Iterator, Union, Literal
 import re
 from collections import OrderedDict
 
-from daisy_30 import _get_smil_name_from_manifest
+from daisy_30 import _get_smil_name_from_manifest, _get_nav_page_from_match
 from general import patterns, NavItem, NavOption, DAISY_VERSIONS, get_id_position_in_text, find_audio_name, _pairwise, \
-    try_open, time_str_to_seconds
+    try_open, time_str_to_seconds, _pairwise_list
 
 
 class DaisyParser:
@@ -27,6 +27,7 @@ class DaisyParser:
     _opf_content: Optional[str]
     _ncx_name: Optional[str]
     _ncx_content: Optional[str]
+    _page_list_block: list
 
     def __init__(self, folder_path: str):
         self._opf_name = None
@@ -57,43 +58,32 @@ class DaisyParser:
 
     def _get_next_page_v3(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
         received_audio_index = self.get_audio_path_index(current_audio_path)
-        page_list_block = re.finditer(patterns['get_pages_list'], self._ncx_content, re.DOTALL)
-        for cur, nex in _pairwise(page_list_block):
+        for cur, nex in _pairwise_list(self.page_list_block):
             # Получаем аудио инфо в формате строки: clipBegin="0:00:34.218" clipEnd="0:00:35.388" src="speechgen0002.mp3"
-            cur_page_audio_info = cur.group(2)
+            cur_page_audio_info = cur[1]
             cur_src_match = re.search(patterns['get_src'], cur_page_audio_info)
             if cur_src_match:
                 cur_src = cur_src_match.group(1)
                 if self.get_audio_path_index(cur_src) == received_audio_index:
-                    print(f'Current page audio info: {cur_page_audio_info}')
                     cur_time_begin_str_match = re.search(patterns['get_clip_begin'], cur_page_audio_info)
-                    cur_time_end_str_match = re.search(patterns['get_clip_end'], cur_page_audio_info)
-                    if cur_time_begin_str_match and cur_time_end_str_match:
+                    if cur_time_begin_str_match:
                         cur_time_begin = time_str_to_seconds(cur_time_begin_str_match.group(1))
-                        cur_time_end = time_str_to_seconds(cur_time_end_str_match.group(1))
-                        if cur_time_begin <= current_time < cur_time_end:
-                            if nex:
-                                nex_text = nex.group(1)
-                                nex_page_audio_info = nex.group(2)
-                                nex_time_begin_str_match = re.search(patterns['get_clip_begin'], nex_page_audio_info)
-                                nex_time_end_str_match = re.search(patterns['get_clip_end'], nex_page_audio_info)
-                                nex_src_match = re.search(patterns['get_src'], nex_page_audio_info)
-                                if nex_time_begin_str_match and nex_time_end_str_match and nex_src_match:
-                                    nex_src = nex_src_match.group(1)
-                                    nex_time_begin = time_str_to_seconds(nex_time_begin_str_match.group(1))
-                                    nex_time_end = time_str_to_seconds(nex_time_end_str_match.group(1))
-                                    return NavItem(nex_src, nex_time_begin, nex_time_end, nex_text)
+                        if current_time < cur_time_begin:
+                            nav_item = _get_nav_page_from_match(cur)
+                            return nav_item
                 elif self.get_audio_path_index(cur_src) > received_audio_index:
-                    cur_text = cur.group(1)
-                    cur_page_audio_info = cur.group(2)
-                    cur_time_begin_str_match = re.search(patterns['get_clip_begin'], cur_page_audio_info)
-                    cur_time_end_str_match = re.search(patterns['get_clip_end'], cur_page_audio_info)
-                    cur_src_match = re.search(patterns['get_src'], cur_page_audio_info)
-                    if cur_time_begin_str_match and cur_time_end_str_match and cur_src_match:
-                        cur_src = cur_src_match.group(1)
-                        cur_time_begin = time_str_to_seconds(cur_time_begin_str_match.group(1))
-                        cur_time_end = time_str_to_seconds(cur_time_end_str_match.group(1))
-                        return NavItem(cur_src, cur_time_begin, cur_time_end, cur_text)
+                    nav_item = _get_nav_page_from_match(cur)
+                    return nav_item
+
+    def _get_prev_page_v3(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
+        received_audio_index = self.get_audio_path_index(current_audio_path)
+        for cur, nex in _pairwise(self.page_list_block):
+            nex_page_audio_info = nex.group(2)
+            nex_src_match = re.search(patterns['get_src'], nex_page_audio_info)
+            if nex_src_match:
+                nex_src = nex_src_match.group(1)
+                if self.get_audio_path_index(nex_src) == received_audio_index:
+                    ...
 
     def get_audios_list(self):
         sorted_keys = iter(sorted(self._positions_audios))
@@ -188,6 +178,7 @@ class DaisyParser:
                     raise ValueError('Отсутствует файл пакета с расширением .ncx')
                 self._opf_content = try_open(f'{self.folder_path}/{self._opf_name}')
                 self._ncx_content = try_open(f'{self.folder_path}/{self._ncx_name}')
+                self.page_list_block = re.findall(patterns['get_pages_list'], self._ncx_content, re.DOTALL)
                 manifest_block = re.search(patterns['get_manifest_content'], self._opf_content, re.DOTALL)
                 spine_block = re.search(patterns['get_spine_content'], self._opf_content, re.DOTALL)
                 if manifest_block and spine_block:
