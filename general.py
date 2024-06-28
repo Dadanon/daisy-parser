@@ -21,6 +21,7 @@ patterns = {
     'get_src': r'src="(.*?)"',
     'get_nav_map_block': r'<navMap.*?>(.*?)</navMap>',
     'get_nav_points': r'<navPoint class="h[1-6][^>].*?>[^<].*?<navLabel>[^<].*?<text>([^<].*?)</text>[^<].*?<audio([^<].*?)/>',  # Получить информацию по страницам
+    'get_smil_audio_list': r'<audio([^/].*?)/>'
 }
 
 

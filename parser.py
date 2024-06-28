@@ -4,7 +4,7 @@ from typing import Optional, Tuple, Dict, Iterator, Union, Literal
 import re
 from collections import OrderedDict
 
-from daisy_30 import _get_smil_name_from_manifest, _get_nav_page_heading_from_match
+from daisy_30 import _get_smil_name_from_manifest, _get_nav_page_heading_from_match, _get_nav_phrase_from_match
 from general import patterns, NavItem, NavOption, DAISY_VERSIONS, get_id_position_in_text, find_audio_name, _pairwise, \
     try_open, time_str_to_seconds, _pairwise_list
 
@@ -27,14 +27,16 @@ class DaisyParser:
     _opf_content: Optional[str]
     _ncx_name: Optional[str]
     _ncx_content: Optional[str]
-    _page_list_block: list
+    _page_list_block: Optional[list]
     _nav_map_block: str
-    _heading_list_block: list
+    _heading_list_block: Optional[list]
     _search_blocks: dict
 
     def __init__(self, folder_path: str):
         self._opf_name = None
         self._ncx_name = None
+        self._page_list_block = None
+        self._heading_list_block = None
         version = '2.02' if os.path.exists(f'{folder_path}/ncc.html') else '3.0'
         self.set_daisy_version(version)
         start_time = time.time()
@@ -62,6 +64,67 @@ class DaisyParser:
             start_audio_index += 1
         if not received_audio_index:
             raise ValueError(f'Техническая ошибка: путь {audio_path} не в списке')
+
+    def _get_next_phrase_v3(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
+        """
+        1. Получаем соответствующий smil
+        2. Получаем аудио в этом smil с подходящим интервалом
+        3. Если есть следующая фраза - возвращаем ее
+        4. Если нет следующей фразы - возвращаем первую фразу из следующего smil
+        5. Если нет следующего smil - возвращаем None
+        """
+        result = self._audios_smils.get(current_audio_path)
+        if not result:
+            raise ValueError(f'Техническая ошибка: по каким-либо причинам файлу {current_audio_path} не присвоен соответствующий smil')
+        received_audio_index, current_smil_name = result
+        current_smil_content = try_open(f'{self.folder_path}/{current_smil_name}')
+        smil_audios_iter = re.finditer(patterns['get_smil_audio_list'], current_smil_content, re.DOTALL)
+        for cur, nex in _pairwise(smil_audios_iter):
+            cur_begin_match = re.search(patterns['get_clip_begin'], cur.group(1))
+            cur_end_match = re.search(patterns['get_clip_end'], cur.group(1))
+            if cur_begin_match and cur_end_match:
+                cur_begin = time_str_to_seconds(cur_begin_match.group(1))
+                cur_end = time_str_to_seconds(cur_end_match.group(1))
+                if cur_begin <= current_time < cur_end:
+                    nav_item: NavItem = _get_nav_phrase_from_match(nex)
+                    return nav_item
+        next_audio_path = self._positions_audios.get(received_audio_index + 1)
+        if not next_audio_path:
+            raise ValueError(f'Текущая фраза по пути {current_audio_path} и временем {current_time} является последней')
+        next_result = self._audios_smils.get(next_audio_path)
+        _, next_smil_name = next_result
+        next_smil_content = try_open(f'{self.folder_path}/{next_smil_name}')
+        first_audio_in_next_smil = re.search(patterns['get_smil_audio_list'], next_smil_content, re.DOTALL)
+        if first_audio_in_next_smil:
+            nav_item: NavItem = _get_nav_phrase_from_match(first_audio_in_next_smil)
+            return nav_item
+
+    def _get_prev_phrase_v3(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
+        result = self._audios_smils.get(current_audio_path)
+        if not result:
+            raise ValueError(f'Техническая ошибка: по каким-либо причинам файлу {current_audio_path} не присвоен соответствующий smil')
+        received_audio_index, current_smil_name = result
+        current_smil_content = try_open(f'{self.folder_path}/{current_smil_name}')
+        smil_audios_iter = re.finditer(patterns['get_smil_audio_list'], current_smil_content, re.DOTALL)
+        for cur, nex in _pairwise(smil_audios_iter):
+            nex_begin_match = re.search(patterns['get_clip_begin'], nex.group(1))
+            nex_end_match = re.search(patterns['get_clip_end'], nex.group(1))
+            if nex_begin_match and nex_end_match:
+                nex_begin = time_str_to_seconds(nex_begin_match.group(1))
+                nex_end = time_str_to_seconds(nex_end_match.group(1))
+                if nex_begin <= current_time < nex_end:
+                    nav_item: NavItem = _get_nav_phrase_from_match(cur)
+                    return nav_item
+        prev_audio_path = self._positions_audios.get(received_audio_index - 1)
+        if not prev_audio_path:
+            raise ValueError(f'Текущая фраза по пути {current_audio_path} и временем {current_time} является первой')
+        prev_result = self._audios_smils.get(prev_audio_path)
+        _, prev_smil_name = prev_result
+        prev_smil_content = try_open(f'{self.folder_path}/{prev_smil_name}')
+        *_, last_audio_in_next_smil = re.finditer(patterns['get_smil_audio_list'], prev_smil_content, re.DOTALL)
+        if last_audio_in_next_smil:
+            nav_item: NavItem = _get_nav_phrase_from_match(last_audio_in_next_smil)
+            return nav_item
 
     def _get_next_page_heading_v3(self, current_audio_path: str, current_time: float):
         received_audio_index = self.get_audio_path_index(current_audio_path)
@@ -238,7 +301,7 @@ class DaisyParser:
             raise ValueError(f"Данному mp3-файлу {audio_path} не присвоен соответствующий smil")
         return try_open(self.get_smil_path(smil_name)), position, smil_name
 
-    def get_next(self, current_audio_path: str, current_time: float) -> NavItem:
+    def get_next(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
         """
         Метод API, при нажатии кнопки вправо мы вызываем этот
         метод, передавая в сигнатуру текущий путь проигрываемого
@@ -246,7 +309,11 @@ class DaisyParser:
         """
         match self._nav_option:
             case NavOption.PHRASE:
-                return self._get_next_phrase(current_audio_path, current_time)
+                match self.version:
+                    case '2.02':
+                        return self._get_next_phrase(current_audio_path, current_time)
+                    case '3.0':
+                        return self._get_next_phrase_v3(current_audio_path, current_time)
             case NavOption.HEADING:
                 match self.version:
                     case '2.02':
@@ -260,7 +327,7 @@ class DaisyParser:
                     case '3.0':
                         return self._get_next_page_heading_v3(current_audio_path, current_time)
 
-    def get_prev(self, current_audio_path: str, current_time: float):
+    def get_prev(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
         """
         Метод API, при нажатии кнопки влево мы вызываем этот
         метод, передавая в сигнатуру текущий путь проигрываемого
@@ -268,7 +335,11 @@ class DaisyParser:
         """
         match self._nav_option:
             case NavOption.PHRASE:
-                return self._get_prev_phrase(current_audio_path, current_time)
+                match self.version:
+                    case '2.02':
+                        return self._get_prev_phrase(current_audio_path, current_time)
+                    case '3.0':
+                        return self._get_prev_phrase_v3(current_audio_path, current_time)
             case NavOption.HEADING:
                 match self.version:
                     case '2.02':
