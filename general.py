@@ -18,7 +18,9 @@ patterns = {
     'get_pages_list': r'<pageTarget[^>]*>[^<].*?<navLabel>[^<].*?<text>([^<].*?)</text>[^<].*?<audio([^/].*?)/>([^<].*?)</navLabel>([^<].*?)',  # Получаем список страниц в виде [('1', 'clipBegin="0:00:34.218" clipEnd="0:00:35.388" src="speechgen0002.mp3"'), ('2', 'clipBegin="0:00:43.751" clipEnd="0:00:46.958" src="speechgen0003.mp3"')...], параметры: текст, время начала, время конца, название mp3
     'get_clip_begin': r'clipBegin="(.*?)"',
     'get_clip_end': r'clipEnd="(.*?)"',
-    'get_src': r'src="(.*?)"'
+    'get_src': r'src="(.*?)"',
+    'get_nav_map_block': r'<navMap.*?>(.*?)</navMap>',
+    'get_nav_points': r'<navPoint class="h[1-6][^>].*?>[^<].*?<navLabel>[^<].*?<text>([^<].*?)</text>[^<].*?<audio([^<].*?)/>',  # Получить информацию по страницам
 }
 
 

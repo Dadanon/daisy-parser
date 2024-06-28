@@ -4,7 +4,7 @@ from typing import Optional, Tuple, Dict, Iterator, Union, Literal
 import re
 from collections import OrderedDict
 
-from daisy_30 import _get_smil_name_from_manifest, _get_nav_page_from_match
+from daisy_30 import _get_smil_name_from_manifest, _get_nav_page_heading_from_match
 from general import patterns, NavItem, NavOption, DAISY_VERSIONS, get_id_position_in_text, find_audio_name, _pairwise, \
     try_open, time_str_to_seconds, _pairwise_list
 
@@ -28,6 +28,9 @@ class DaisyParser:
     _ncx_name: Optional[str]
     _ncx_content: Optional[str]
     _page_list_block: list
+    _nav_map_block: str
+    _heading_list_block: list
+    _search_blocks: dict
 
     def __init__(self, folder_path: str):
         self._opf_name = None
@@ -42,6 +45,10 @@ class DaisyParser:
         self._positions_audios = {}
         """Словарь, ключ - порядковый номер аудио, значение - путь к mp3"""
         self._prepare_dicts()
+        self._search_blocks = {
+            NavOption.HEADING: self._heading_list_block,
+            NavOption.PAGE: self._page_list_block
+        }
         end_time = time.time()
         print(f'\nTotal parse time: {end_time - start_time:0.4f} seconds\n')
 
@@ -56,28 +63,28 @@ class DaisyParser:
         if not received_audio_index:
             raise ValueError(f'Техническая ошибка: путь {audio_path} не в списке')
 
-    def _get_next_page_v3(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
+    def _get_next_page_heading_v3(self, current_audio_path: str, current_time: float):
         received_audio_index = self.get_audio_path_index(current_audio_path)
-        for cur, nex in _pairwise_list(self.page_list_block):
+        for cur, nex in _pairwise_list(self._search_blocks.get(self._nav_option)):
             # Получаем аудио инфо в формате строки: clipBegin="0:00:34.218" clipEnd="0:00:35.388" src="speechgen0002.mp3"
-            cur_page_audio_info = cur[1]
-            cur_src_match = re.search(patterns['get_src'], cur_page_audio_info)
+            cur_nav_audio_info = cur[1]
+            cur_src_match = re.search(patterns['get_src'], cur_nav_audio_info)
             if cur_src_match:
                 cur_src = cur_src_match.group(1)
                 if self.get_audio_path_index(cur_src) == received_audio_index:
-                    cur_time_begin_str_match = re.search(patterns['get_clip_begin'], cur_page_audio_info)
+                    cur_time_begin_str_match = re.search(patterns['get_clip_begin'], cur_nav_audio_info)
                     if cur_time_begin_str_match:
                         cur_time_begin = time_str_to_seconds(cur_time_begin_str_match.group(1))
                         if current_time < cur_time_begin:
-                            nav_item = _get_nav_page_from_match(cur)
+                            nav_item = _get_nav_page_heading_from_match(cur)
                             return nav_item
                 elif self.get_audio_path_index(cur_src) > received_audio_index:
-                    nav_item = _get_nav_page_from_match(cur)
+                    nav_item = _get_nav_page_heading_from_match(cur)
                     return nav_item
 
-    def _get_prev_page_v3(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
+    def _get_prev_page_heading_v3(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
         received_audio_index = self.get_audio_path_index(current_audio_path)
-        for cur, nex in _pairwise_list(self.page_list_block):
+        for cur, nex in _pairwise_list(self._search_blocks.get(self._nav_option)):
             nex_page_audio_info = nex[1]
             nex_src_match = re.search(patterns['get_src'], nex_page_audio_info)
             if nex_src_match:
@@ -87,13 +94,13 @@ class DaisyParser:
                     if nex_time_end_str_match:
                         nex_time_end = time_str_to_seconds(nex_time_end_str_match.group(1))
                         if nex_time_end < current_time:
-                            nav_item = _get_nav_page_from_match(nex)
+                            nav_item = _get_nav_page_heading_from_match(nex)
                             return nav_item
                         else:
-                            nav_item = _get_nav_page_from_match(cur)
+                            nav_item = _get_nav_page_heading_from_match(cur)
                             return nav_item
                 elif self.get_audio_path_index(nex_src) > received_audio_index:
-                    nav_item = _get_nav_page_from_match(cur)
+                    nav_item = _get_nav_page_heading_from_match(cur)
                     return nav_item
 
     def get_audios_list(self):
@@ -189,7 +196,12 @@ class DaisyParser:
                     raise ValueError('Отсутствует файл пакета с расширением .ncx')
                 self._opf_content = try_open(f'{self.folder_path}/{self._opf_name}')
                 self._ncx_content = try_open(f'{self.folder_path}/{self._ncx_name}')
-                self.page_list_block = re.findall(patterns['get_pages_list'], self._ncx_content, re.DOTALL)
+                self._page_list_block = re.findall(patterns['get_pages_list'], self._ncx_content, re.DOTALL)
+                nav_map_block_match = re.search(patterns['get_nav_map_block'], self._ncx_content, re.DOTALL)
+                if not nav_map_block_match:
+                    raise ValueError('Отсутствует блок навигации, связанный с заголовками, в 3 версии')
+                self._nav_map_block = nav_map_block_match.group(1)
+                self._heading_list_block = re.findall(patterns['get_nav_points'], self._nav_map_block, re.DOTALL)
                 manifest_block = re.search(patterns['get_manifest_content'], self._opf_content, re.DOTALL)
                 spine_block = re.search(patterns['get_spine_content'], self._opf_content, re.DOTALL)
                 if manifest_block and spine_block:
@@ -236,13 +248,17 @@ class DaisyParser:
             case NavOption.PHRASE:
                 return self._get_next_phrase(current_audio_path, current_time)
             case NavOption.HEADING:
-                return self._get_next_heading(current_audio_path, current_time)
+                match self.version:
+                    case '2.02':
+                        return self._get_next_heading(current_audio_path, current_time)
+                    case '3.0':
+                        return self._get_next_page_heading_v3(current_audio_path, current_time)
             case NavOption.PAGE:
                 match self.version:
                     case '2.02':
                         return self._get_next_page(current_audio_path, current_time)
                     case '3.0':
-                        return self._get_next_page_v3(current_audio_path, current_time)
+                        return self._get_next_page_heading_v3(current_audio_path, current_time)
 
     def get_prev(self, current_audio_path: str, current_time: float):
         """
@@ -254,13 +270,17 @@ class DaisyParser:
             case NavOption.PHRASE:
                 return self._get_prev_phrase(current_audio_path, current_time)
             case NavOption.HEADING:
-                return self._get_prev_heading(current_audio_path, current_time)
+                match self.version:
+                    case '2.02':
+                        return self._get_prev_heading(current_audio_path, current_time)
+                    case '3.0':
+                        return self._get_prev_page_heading_v3(current_audio_path, current_time)
             case NavOption.PAGE:
                 match self.version:
                     case '2.02':
                         return self._get_prev_page(current_audio_path, current_time)
                     case '3.0':
-                        return self._get_prev_page_v3(current_audio_path, current_time)
+                        return self._get_prev_page_heading_v3(current_audio_path, current_time)
 
     def _get_next_page(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
         """
