@@ -38,6 +38,6 @@ def test_book(folder_path: str, audio_path: str, current_time: float):
 FRONTPAGE = ['frontpage', '823_r.mp3', 456.5]
 TEST_BOOK = ['test_book', '08_26th_.mp3', 263]
 DAISY_3 = ['daisy_3', 'speechgen0007.mp3', 13]
-MOUNTAINS_SKIP = ['mountains_skip', 'bagw001D.mp3', 7]
+MOUNTAINS_SKIP = ['mountains_skip', 'bagw0014.mp3', 17]
 
 test_book(*MOUNTAINS_SKIP)

@@ -64,7 +64,6 @@ class DaisyParser:
             NavOption.PAGE: self._pages_list
         }
         end_time = time.time()
-        print(self._audios_smils)
         print(f'\nTotal parse time: {end_time - start_time:0.4f} seconds\n')
 
     def get_audio_path_index(self, audio_path: str) -> int:
@@ -308,31 +307,34 @@ class DaisyParser:
 
     def _get_next_heading_page(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
         current_position, current_smil_name = self._audios_smils.get(current_audio_path)
-        print(f'Current position: {current_position}, current smil name: {current_smil_name}')
-        for nav_match in self._search_blocks_v2.get(self._nav_option):
-            smil_name = nav_match.group(1)
-            if self._smils_positions.get(smil_name) == self._smils_positions.get(current_smil_name):
-                smil_content = try_open(f'{self.folder_path}/{smil_name}')
-                nav_id: str = nav_match.group(2)
-                nav_id_pos_in_smil: int = get_id_position_in_text(nav_id, smil_content)
-                next_audio_match = re.search(patterns['get_audio_info'], smil_content[nav_id_pos_in_smil:], re.DOTALL)
-                if next_audio_match:
-                    next_audio_begin = float(next_audio_match.group(2))
-                    if next_audio_begin > current_time:
-                        nav_text = nav_match.group(3)
-                        next_audio_src, next_audio_end = next_audio_match.group(1), float(next_audio_match.group(3))
-                        nav_item: NavItem = NavItem(next_audio_src, next_audio_begin, next_audio_end, nav_text)
+        current_smil_navs = find_headings_pages_list_by_smil_name(self._ncc_content, current_smil_name,
+                                                                  self._nav_option)
+        if len(current_smil_navs) > 0:
+            current_smil_content = try_open(self.get_smil_path(current_smil_name))
+            for nav in current_smil_navs:
+                nav_id = nav[0]
+                nav_id_pos_in_smil = get_id_position_in_text(nav_id, current_smil_content, current_smil_name)
+                nav_audio = re.search(patterns['get_audio_info'], current_smil_content[nav_id_pos_in_smil:], re.DOTALL)
+                if nav_audio:
+                    nav_audio_start = float(nav_audio.group(2))
+                    if nav_audio_start > current_time:
+                        nav_item: NavItem = _get_nav_from_match_v202(nav_audio, nav[1])
                         return nav_item
-            elif self._smils_positions.get(smil_name) > self._smils_positions.get(current_smil_name):
-                smil_content = try_open(f'{self.folder_path}/{smil_name}')
-                nav_id: str = nav_match.group(2)
-                nav_id_pos_in_smil: int = get_id_position_in_text(nav_id, smil_content)
-                first_nav_audio_match = re.search(patterns['get_audio_info'], smil_content[nav_id_pos_in_smil:],
-                                                  re.DOTALL)
-                if first_nav_audio_match:
-                    nav_text = nav_match.group(3)
-                    nav_item: NavItem = _get_nav_from_match_v202(first_nav_audio_match, nav_text)
-                    return nav_item
+            start_position = current_position
+            while start_position < len(self._positions_audios):
+                nex_audio_path = self._positions_audios.get(start_position + 1)
+                _, nex_smil_name = self._audios_smils.get(nex_audio_path)
+                nex_smil_navs = find_headings_pages_list_by_smil_name(self._ncc_content, nex_smil_name, self._nav_option)
+                if len(nex_smil_navs) > 0:
+                    nex_nav = nex_smil_navs[0]
+                    nex_smil_content = try_open(self.get_smil_path(nex_smil_name))
+                    nex_nav_id = nex_nav[0]
+                    nex_nav_id_pos_in_smil = get_id_position_in_text(nex_nav_id, nex_smil_content, nex_smil_name)
+                    nex_nav_audio = re.search(patterns['get_audio_info'], nex_smil_content[nex_nav_id_pos_in_smil:], re.DOTALL)
+                    if nex_nav_audio:
+                        nex_nav_item: NavItem = _get_nav_from_match_v202(nex_nav_audio, nex_nav[1])
+                        return nex_nav_item
+                start_position += 1
 
     def _get_prev_heading_page(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
         current_position, current_smil_name = self._audios_smils.get(current_audio_path)
@@ -340,19 +342,21 @@ class DaisyParser:
         if len(current_smil_navs) > 0:
             # Найдены заголовки для соответствующего smil, начинаем искать с конца
             current_smil_content = try_open(self.get_smil_path(current_smil_name))
-            for heading in reversed(current_smil_navs):
-                nav_id = heading[0]
+            for nav in reversed(current_smil_navs):
+                nav_id = nav[0]
                 nav_id_pos_in_smil = get_id_position_in_text(nav_id, current_smil_content, current_smil_name)
                 nav_audio = re.search(patterns['get_audio_info'], current_smil_content[nav_id_pos_in_smil:], re.DOTALL)
                 if nav_audio:
                     nav_audio_end = float(nav_audio.group(3))
                     if nav_audio_end < current_time:
-                        nav_item: NavItem = _get_nav_from_match_v202(nav_audio, heading[1])
+                        nav_item: NavItem = _get_nav_from_match_v202(nav_audio, nav[1])
                         return nav_item
         # Не нашли подходящий заголовок для данного smil, ищем первый предыдущий
         start_position = current_position
         while start_position > 1:
             prev_audio_path = self._positions_audios.get(start_position - 1)
+            if not prev_audio_path:
+                return None
             _, prev_smil_name = self._audios_smils.get(prev_audio_path)
             prev_smil_navs = find_headings_pages_list_by_smil_name(self._ncc_content, prev_smil_name, self._nav_option)
             if len(prev_smil_navs) > 0:
