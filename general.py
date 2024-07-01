@@ -13,6 +13,8 @@ patterns = {
     'get_headings': r'<h[1-6][^>].*?><a href="([^"#].*?)#([^"].*?)">([^<].*?)</a></h[1-6]>',
     # Получаем список заголовков в формате [('icth0001.smil', 'icth0001', 'A light Man'), ('icth0002.smil', 'icth_0001', 'Epigraph')...]
     'get_pages': r'<span[^>].*?><a href="([^"#].*?)#([^"].*?)">([^<].*?)</a></span>',
+    'get_headings_new': r'<h[1-6][^>].*?>(.*?)</h[1-6]>',
+    'get_pages_new': r'<span[^>].*?>(.*?)</span>',
     # INFO: шаблоны для 3 версии
     'get_spine_content': r'<spine>(.*?)</spine>',  # Получаем содержимое блока spine
     'get_spine_ordered_items': r'idref="(.*?)"',  # Получаем список id smil по порядку в виде ['smil-1', smil-2'...]

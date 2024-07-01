@@ -1,7 +1,7 @@
-from typing import Optional, List
+from typing import Optional, List, Union, Literal
 import re
 
-from general import NavItem
+from general import NavItem, patterns, NavOption
 
 
 def _get_nav_from_match_v202(phrase_match: re.Match, heading_text: str = '') -> Optional[NavItem]:
@@ -11,13 +11,20 @@ def _get_nav_from_match_v202(phrase_match: re.Match, heading_text: str = '') -> 
     return NavItem(src, time_begin, time_end, heading_text)
 
 
-def find_headings_list_by_smil_name(ncc_content: str, smil_name: str) -> List:
-    pattern = rf'<h[1-6][^>].*?><a href="{smil_name}#([^"].*?)">([^<].*?)</a></h[1-6]>'
-    return re.findall(pattern, ncc_content, re.DOTALL)
-
-
-def find_pages_list_by_smil_name(ncc_content: str, smil_name: str) -> List:
-    pattern = rf'<span[^>].*?><a href="{smil_name}#([^"].*?)">([^<].*?)</a></span>'
-    return re.findall(pattern, ncc_content)
+def find_headings_pages_list_by_smil_name(ncc_content: str, smil_name: str, nav_option: Union[Literal[NavOption.HEADING, NavOption.PAGE]]) -> List:
+    match nav_option:
+        case NavOption.HEADING:
+            chunks = re.finditer(patterns['get_headings_new'], ncc_content, re.DOTALL)
+        case NavOption.PAGE:
+            chunks = re.finditer(patterns['get_pages_new'], ncc_content, re.DOTALL)
+        case _:
+            raise ValueError(f'Недопустимый формат nav_option: {nav_option}')
+    nav_list = []
+    for chunk in chunks:
+        pattern = rf'<a href="{smil_name}#([^"].*?)">([^<].*?)</a>'
+        result = re.search(pattern, chunk.group(0), re.DOTALL)
+        if result:
+            nav_list.append([result.group(1), result.group(2)])
+    return nav_list
 
 

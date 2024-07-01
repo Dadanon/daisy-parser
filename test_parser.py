@@ -6,6 +6,7 @@ from parser import DaisyParser
 
 
 def _test_nav_option(parser: DaisyParser, audio_path: str, current_time: float, nav_option: NavOption, direction: DIRECTION = 1):
+    print(f'\nТестируется навигация для {nav_option.name} в направлении {"вперед" if direction == 1 else "назад"}\n')
     func: Callable[[str, float], Optional[NavItem]] = parser.get_next if direction == 1 else parser.get_prev
     parser.set_nav_option(nav_option)
 
@@ -37,5 +38,6 @@ def test_book(folder_path: str, audio_path: str, current_time: float):
 FRONTPAGE = ['frontpage', '823_r.mp3', 456.5]
 TEST_BOOK = ['test_book', '08_26th_.mp3', 263]
 DAISY_3 = ['daisy_3', 'speechgen0007.mp3', 13]
+MOUNTAINS_SKIP = ['mountains_skip', 'bagw001D.mp3', 7]
 
-test_book(*TEST_BOOK)
+test_book(*MOUNTAINS_SKIP)
