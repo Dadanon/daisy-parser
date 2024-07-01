@@ -1,7 +1,7 @@
 import itertools
 import re
 from enum import IntEnum
-from typing import Optional
+from typing import Optional, Union, Literal
 
 patterns = {
     'get_audio_src': r'<audio[^>]*\ssrc="([^"]+)"',  # Получаем значение атрибута src в теге audio
@@ -10,19 +10,27 @@ patterns = {
     # Получаем временной интервал'
     'get_all_pages': r'<span class="[^"]*" id="[^"]*"><a href="([^"]*)">([^<]*)</a></span>',
     # Получаем список всех страниц
+    'get_headings': r'<h[1-6][^>].*?><a href="([^"#].*?)#([^"].*?)">([^<].*?)</a></h[1-6]>',
+    # Получаем список заголовков в формате [('icth0001.smil', 'icth0001', 'A light Man'), ('icth0002.smil', 'icth_0001', 'Epigraph')...]
+    'get_pages': r'<span[^>].*?><a href="([^"#].*?)#([^"].*?)">([^<].*?)</a></span>',
     # INFO: шаблоны для 3 версии
     'get_spine_content': r'<spine>(.*?)</spine>',  # Получаем содержимое блока spine
     'get_spine_ordered_items': r'idref="(.*?)"',  # Получаем список id smil по порядку в виде ['smil-1', smil-2'...]
     'get_manifest_content': r'<manifest>(.*?)</manifest>',  # Получаем блок, в котором получим названия smil
     'get_page_list_block': r'<pageList[^>]+>(.*?)</pageList>',  # Получаем блок pageList со списком страниц
-    'get_pages_list': r'<pageTarget[^>]*>[^<].*?<navLabel>[^<].*?<text>([^<].*?)</text>[^<].*?<audio([^/].*?)/>([^<].*?)</navLabel>([^<].*?)',  # Получаем список страниц в виде [('1', 'clipBegin="0:00:34.218" clipEnd="0:00:35.388" src="speechgen0002.mp3"'), ('2', 'clipBegin="0:00:43.751" clipEnd="0:00:46.958" src="speechgen0003.mp3"')...], параметры: текст, время начала, время конца, название mp3
+    'get_pages_list': r'<pageTarget[^>]*>[^<].*?<navLabel>[^<].*?<text>([^<].*?)</text>[^<].*?<audio([^/].*?)/>([^<].*?)</navLabel>([^<].*?)',
+    # Получаем список страниц в виде [('1', 'clipBegin="0:00:34.218" clipEnd="0:00:35.388" src="speechgen0002.mp3"'), ('2', 'clipBegin="0:00:43.751" clipEnd="0:00:46.958" src="speechgen0003.mp3"')...], параметры: текст, время начала, время конца, название mp3
     'get_clip_begin': r'clipBegin="(.*?)"',
     'get_clip_end': r'clipEnd="(.*?)"',
     'get_src': r'src="(.*?)"',
     'get_nav_map_block': r'<navMap.*?>(.*?)</navMap>',
-    'get_nav_points': r'<navPoint class="h[1-6][^>].*?>[^<].*?<navLabel>[^<].*?<text>([^<].*?)</text>[^<].*?<audio([^<].*?)/>',  # Получить информацию по страницам
+    'get_nav_points': r'<navPoint class="h[1-6][^>].*?>[^<].*?<navLabel>[^<].*?<text>([^<].*?)</text>[^<].*?<audio([^<].*?)/>',
+    # Получить информацию по страницам
     'get_smil_audio_list': r'<audio([^/].*?)/>'
 }
+
+
+DIRECTION = Union[Literal[1], Literal[-1]]
 
 
 class NavItem:
@@ -59,11 +67,11 @@ def time_str_to_seconds(time_str: str) -> float:
         print(f'Bad time string: {time_str}, error: {e}')
 
 
-def get_id_position_in_text(id_str: str, file_content: str) -> int:
+def get_id_position_in_text(id_str: str, file_content: str, file_name: str = '') -> int:
     pattern = rf'{id_str}'
     match = re.search(pattern, file_content)
     if not match:
-        raise ValueError(f'Отсутствует элемент с id = {id_str}')
+        raise ValueError(f'Отсутствует элемент с id = {id_str} в {file_name}')
     return match.start()
 
 

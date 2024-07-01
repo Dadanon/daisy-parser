@@ -4,9 +4,10 @@ from typing import Optional, Tuple, Dict, Iterator, Union, Literal
 import re
 from collections import OrderedDict
 
-from daisy_30 import _get_smil_name_from_manifest, _get_nav_page_heading_from_match, _get_nav_phrase_from_match
+from daisy_202 import _get_nav_from_match_v202, find_headings_list_by_smil_name
+from daisy_30 import _get_smil_name_from_manifest, _get_nav_page_heading_from_match_v30, _get_nav_phrase_from_match_v30
 from general import patterns, NavItem, NavOption, DAISY_VERSIONS, get_id_position_in_text, find_audio_name, _pairwise, \
-    try_open, time_str_to_seconds, _pairwise_list
+    try_open, time_str_to_seconds, _pairwise_list, DIRECTION
 
 
 class DaisyParser:
@@ -22,6 +23,7 @@ class DaisyParser:
         int, str]]  # Словарь, где ключ - путь к аудиофайлу, а значение - массив с позицией данного файла и соответствующим именем smil
     _positions_audios: Dict[
         int, str]  # Словарь где мы храним порядковый номер каждого аудио как ключ и путь к аудио - как значение
+    _smils_positions: Dict[str, int]  # Словарь вида {'1.smil': 1, '2.smil': 2}
     _ncc_content: Optional[str]
     _opf_name: Optional[str]
     _opf_content: Optional[str]
@@ -31,12 +33,18 @@ class DaisyParser:
     _nav_map_block: str
     _heading_list_block: Optional[list]
     _search_blocks: dict
+    _search_blocks_v2: dict
+    _headings_list: Optional[Iterator[re.Match]]
+    _pages_list: Optional[Iterator[re.Match]]
 
     def __init__(self, folder_path: str):
         self._opf_name = None
         self._ncx_name = None
         self._page_list_block = None
         self._heading_list_block = None
+        self._headings_list = None
+        self._pages_list = None
+        self._smils_positions = {}
         version = '2.02' if os.path.exists(f'{folder_path}/ncc.html') else '3.0'
         self.set_daisy_version(version)
         start_time = time.time()
@@ -50,6 +58,10 @@ class DaisyParser:
         self._search_blocks = {
             NavOption.HEADING: self._heading_list_block,
             NavOption.PAGE: self._page_list_block
+        }
+        self._search_blocks_v2 = {
+            NavOption.HEADING: self._headings_list,
+            NavOption.PAGE: self._pages_list
         }
         end_time = time.time()
         print(f'\nTotal parse time: {end_time - start_time:0.4f} seconds\n')
@@ -65,6 +77,27 @@ class DaisyParser:
         if not received_audio_index:
             raise ValueError(f'Техническая ошибка: путь {audio_path} не в списке')
 
+    def _get_first_phrase_result(self, current_audio_path: str, current_time: float, direction: DIRECTION = 1) -> Union[
+        NavItem, int]:
+        result = self._audios_smils.get(current_audio_path)
+        if not result:
+            raise ValueError(
+                f'Техническая ошибка: по каким-либо причинам файлу {current_audio_path} не присвоен соответствующий smil')
+        received_audio_index, current_smil_name = result
+        current_smil_content = try_open(f'{self.folder_path}/{current_smil_name}')
+        smil_audios_iter = re.finditer(patterns['get_smil_audio_list'], current_smil_content, re.DOTALL)
+        for cur, nex in _pairwise(smil_audios_iter):
+            current_item, next_item = (cur, nex) if direction == 1 else (nex, cur)
+            cur_begin_match = re.search(patterns['get_clip_begin'], current_item.group(1))
+            cur_end_match = re.search(patterns['get_clip_end'], current_item.group(1))
+            if cur_begin_match and cur_end_match:
+                cur_begin = time_str_to_seconds(cur_begin_match.group(1))
+                cur_end = time_str_to_seconds(cur_end_match.group(1))
+                if cur_begin <= current_time < cur_end:
+                    nav_item: NavItem = _get_nav_phrase_from_match_v30(next_item)
+                    return nav_item
+        return received_audio_index
+
     def _get_next_phrase_v3(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
         """
         1. Получаем соответствующий smil
@@ -73,57 +106,33 @@ class DaisyParser:
         4. Если нет следующей фразы - возвращаем первую фразу из следующего smil
         5. Если нет следующего smil - возвращаем None
         """
-        result = self._audios_smils.get(current_audio_path)
-        if not result:
-            raise ValueError(f'Техническая ошибка: по каким-либо причинам файлу {current_audio_path} не присвоен соответствующий smil')
-        received_audio_index, current_smil_name = result
-        current_smil_content = try_open(f'{self.folder_path}/{current_smil_name}')
-        smil_audios_iter = re.finditer(patterns['get_smil_audio_list'], current_smil_content, re.DOTALL)
-        for cur, nex in _pairwise(smil_audios_iter):
-            cur_begin_match = re.search(patterns['get_clip_begin'], cur.group(1))
-            cur_end_match = re.search(patterns['get_clip_end'], cur.group(1))
-            if cur_begin_match and cur_end_match:
-                cur_begin = time_str_to_seconds(cur_begin_match.group(1))
-                cur_end = time_str_to_seconds(cur_end_match.group(1))
-                if cur_begin <= current_time < cur_end:
-                    nav_item: NavItem = _get_nav_phrase_from_match(nex)
-                    return nav_item
-        next_audio_path = self._positions_audios.get(received_audio_index + 1)
+        result: Union[NavItem, int] = self._get_first_phrase_result(current_audio_path, current_time, 1)
+        if not isinstance(result, int):
+            return result
+        next_audio_path = self._positions_audios.get(result + 1)
         if not next_audio_path:
-            raise ValueError(f'Текущая фраза по пути {current_audio_path} и временем {current_time} является последней')
+            return None
         next_result = self._audios_smils.get(next_audio_path)
         _, next_smil_name = next_result
         next_smil_content = try_open(f'{self.folder_path}/{next_smil_name}')
         first_audio_in_next_smil = re.search(patterns['get_smil_audio_list'], next_smil_content, re.DOTALL)
         if first_audio_in_next_smil:
-            nav_item: NavItem = _get_nav_phrase_from_match(first_audio_in_next_smil)
+            nav_item: NavItem = _get_nav_phrase_from_match_v30(first_audio_in_next_smil)
             return nav_item
 
     def _get_prev_phrase_v3(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
-        result = self._audios_smils.get(current_audio_path)
-        if not result:
-            raise ValueError(f'Техническая ошибка: по каким-либо причинам файлу {current_audio_path} не присвоен соответствующий smil')
-        received_audio_index, current_smil_name = result
-        current_smil_content = try_open(f'{self.folder_path}/{current_smil_name}')
-        smil_audios_iter = re.finditer(patterns['get_smil_audio_list'], current_smil_content, re.DOTALL)
-        for cur, nex in _pairwise(smil_audios_iter):
-            nex_begin_match = re.search(patterns['get_clip_begin'], nex.group(1))
-            nex_end_match = re.search(patterns['get_clip_end'], nex.group(1))
-            if nex_begin_match and nex_end_match:
-                nex_begin = time_str_to_seconds(nex_begin_match.group(1))
-                nex_end = time_str_to_seconds(nex_end_match.group(1))
-                if nex_begin <= current_time < nex_end:
-                    nav_item: NavItem = _get_nav_phrase_from_match(cur)
-                    return nav_item
-        prev_audio_path = self._positions_audios.get(received_audio_index - 1)
+        result: Union[NavItem, int] = self._get_first_phrase_result(current_audio_path, current_time, -1)
+        if not isinstance(result, int):
+            return result
+        prev_audio_path = self._positions_audios.get(result - 1)
         if not prev_audio_path:
-            raise ValueError(f'Текущая фраза по пути {current_audio_path} и временем {current_time} является первой')
+            return None
         prev_result = self._audios_smils.get(prev_audio_path)
         _, prev_smil_name = prev_result
         prev_smil_content = try_open(f'{self.folder_path}/{prev_smil_name}')
         *_, last_audio_in_next_smil = re.finditer(patterns['get_smil_audio_list'], prev_smil_content, re.DOTALL)
         if last_audio_in_next_smil:
-            nav_item: NavItem = _get_nav_phrase_from_match(last_audio_in_next_smil)
+            nav_item: NavItem = _get_nav_phrase_from_match_v30(last_audio_in_next_smil)
             return nav_item
 
     def _get_next_page_heading_v3(self, current_audio_path: str, current_time: float):
@@ -139,10 +148,10 @@ class DaisyParser:
                     if cur_time_begin_str_match:
                         cur_time_begin = time_str_to_seconds(cur_time_begin_str_match.group(1))
                         if current_time < cur_time_begin:
-                            nav_item = _get_nav_page_heading_from_match(cur)
+                            nav_item = _get_nav_page_heading_from_match_v30(cur)
                             return nav_item
                 elif self.get_audio_path_index(cur_src) > received_audio_index:
-                    nav_item = _get_nav_page_heading_from_match(cur)
+                    nav_item = _get_nav_page_heading_from_match_v30(cur)
                     return nav_item
 
     def _get_prev_page_heading_v3(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
@@ -157,13 +166,13 @@ class DaisyParser:
                     if nex_time_end_str_match:
                         nex_time_end = time_str_to_seconds(nex_time_end_str_match.group(1))
                         if nex_time_end < current_time:
-                            nav_item = _get_nav_page_heading_from_match(nex)
+                            nav_item = _get_nav_page_heading_from_match_v30(nex)
                             return nav_item
                         else:
-                            nav_item = _get_nav_page_heading_from_match(cur)
+                            nav_item = _get_nav_page_heading_from_match_v30(cur)
                             return nav_item
                 elif self.get_audio_path_index(nex_src) > received_audio_index:
-                    nav_item = _get_nav_page_heading_from_match(cur)
+                    nav_item = _get_nav_page_heading_from_match_v30(cur)
                     return nav_item
 
     def get_audios_list(self):
@@ -239,9 +248,12 @@ class DaisyParser:
                 current_smil_position: int = 1
                 for smil_id in smil_names:
                     if corresponding_audio_name := find_audio_name(self.get_smil_path(smil_id)):
+                        self._smils_positions[smil_id] = current_smil_position
                         self._positions_audios[current_smil_position] = corresponding_audio_name
                         self._audios_smils[corresponding_audio_name] = current_smil_position, smil_id
                         current_smil_position += 1
+                self._headings_list = re.finditer(patterns['get_headings'], self._ncc_content, re.DOTALL)
+                self._pages_list = re.finditer(patterns['get_pages'], self._ncc_content, re.DOTALL)
             case '3.0':
                 for file in os.listdir(self.folder_path):
                     # check only text files
@@ -311,19 +323,19 @@ class DaisyParser:
             case NavOption.PHRASE:
                 match self.version:
                     case '2.02':
-                        return self._get_next_phrase(current_audio_path, current_time)
+                        return self._get_next_prev_phrase(current_audio_path, current_time, 1)
                     case '3.0':
                         return self._get_next_phrase_v3(current_audio_path, current_time)
             case NavOption.HEADING:
                 match self.version:
                     case '2.02':
-                        return self._get_next_heading(current_audio_path, current_time)
+                        return self._get_next_heading_page(current_audio_path, current_time)
                     case '3.0':
                         return self._get_next_page_heading_v3(current_audio_path, current_time)
             case NavOption.PAGE:
                 match self.version:
                     case '2.02':
-                        return self._get_next_page(current_audio_path, current_time)
+                        return self._get_next_heading_page(current_audio_path, current_time)
                     case '3.0':
                         return self._get_next_page_heading_v3(current_audio_path, current_time)
 
@@ -337,7 +349,7 @@ class DaisyParser:
             case NavOption.PHRASE:
                 match self.version:
                     case '2.02':
-                        return self._get_prev_phrase(current_audio_path, current_time)
+                        return self._get_next_prev_phrase(current_audio_path, current_time, -1)
                     case '3.0':
                         return self._get_prev_phrase_v3(current_audio_path, current_time)
             case NavOption.HEADING:
@@ -353,45 +365,6 @@ class DaisyParser:
                     case '3.0':
                         return self._get_prev_page_heading_v3(current_audio_path, current_time)
 
-    def _get_next_page(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
-        """
-        1) Получаем соответствующий smil и позицию соответствующего аудио кусочка
-        2) Находим первый тэг span в ncc.html, соответствующий данному smil,
-        получаем id элемента в теге span и ищем позицию этого id в данном smil
-        3) Если тег из пункта 2 не найден или позиция из п.2 ниже позиции из п.1 - в цикле while прибавляем
-        по 1 к позиции smil из п.1, пока в файле ncc.html не будет найден тег span, принадлежащий очередному smil
-        4) Получаем id элемента в теге span
-        5) Находим позицию элемента с id из п.4 в соответствующем smil
-        6) Находим следующий тег audio и возвращаем соответствующий NavText
-        """
-        smil_content, position, smil_name = self._get_smil_content_position_name(current_audio_path)
-        audio_chunk_pos: Optional[int] = None
-        matches = re.finditer(patterns['get_audio_info'], smil_content)
-        for match in matches:
-            clip_begin = float(match.group(2))
-            clip_end = float(match.group(3))
-            if clip_begin <= current_time < clip_end:
-                audio_chunk_pos = match.start()
-                break
-
-        search_smil_content, search_position, search_smil_name, search_audio_path = smil_content, position, smil_name, current_audio_path
-        while search_audio_path is not None:
-            smil_pages = self.find_pages_by_prefix(search_smil_name)
-            for p in smil_pages:
-                p_text_id, p_text = p.group(1).split('#')[-1], p.group(2)
-                p_text_id_smil_pos = get_id_position_in_text(p_text_id, search_smil_content)
-                if p_text_id_smil_pos > audio_chunk_pos:
-                    next_audio_chunk = re.search(patterns['get_audio_info'], search_smil_content[p_text_id_smil_pos:])
-                    nav_text: NavItem = NavItem(search_audio_path, float(next_audio_chunk.group(2)),
-                                                float(next_audio_chunk.group(3)), p_text)
-                    return nav_text
-            # Обнуление
-            audio_chunk_pos = 0
-            search_audio_path = self._positions_audios.get(search_position + 1)
-            search_position += 1
-            search_smil_content, search_position, search_smil_name = self._get_smil_content_position_name(
-                search_audio_path)
-
     def _get_prev_page(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
         """
         1) Получаем соответствующий smil соответствующего аудио кусочка
@@ -404,7 +377,6 @@ class DaisyParser:
         5) Находим позицию элемента с id из п.4 в соответствующем smil
         6) Находим следующий тег audio и возвращаем соответствующий NavText
         """
-
         result = self._get_next_prev_audio_chunk_pos(current_audio_path, current_time, -1)
         if not result:
             return None
@@ -509,193 +481,86 @@ class DaisyParser:
         #                             float(next_audio_match.group(3)))
         # return nav_text
 
-    def _get_next_heading(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
-        """
-        Ищет audio тэг, в интервал которого попадает current_time.\n
-        Например, мы передали current_audio_path = 823_r.mp3, current_time = 453.
-        Соответствующий audio тег:
-        <audio src="823_r.mp3" clip-begin="npt=451.216s" clip-end="npt=453.219s" id="rgn_aud_0823_0337" />.
-        Сохраняем его положение в тексте. Соответствующий smil: s0823.smil\n
-        1. Смотрим в ncc.html на наличие тегов h* в этом smil. Находим:
-        ['<h2 id="cn23541"><a href="s0823.smil#tx24767">R</a></h2>']\n
-        2. Ищем элемент с id=tx24767 в файле s0823.smil. Он находится раньше
-        (по положению в тексте), а, значит, не подходит нам\n
-        3. Ищем следующий заголовок в ncc.html, это
-        <h2 id="cn23881"><a href="s0824.smil#tx25109">S</a></h2>.
-        Т.к. он из следующего smil - это то, что нам нужно. Берем название: S\n
-        4. Переходим в s0824.smil и ищем элемент с id=tx25109
-        <text src="fp2003_rearmatter.html#cn23881" id="tx25109" />\n
-        5. Находим следующий audio тег
-        <audio src="824_s.mp3" clip-begin="npt=0.000s" clip-end="npt=0.569s" id="rgn_aud_0824_0001" />
-        """
-        smil_content, position, smil_name = self._get_smil_content_position_name(current_audio_path)
-        matches = re.finditer(patterns['get_audio_info'], smil_content)
-        for match in matches:
-            clip_begin = float(match.group(2))
-            clip_end = float(match.group(3))
-            if clip_begin <= current_time < clip_end:
-                position_in_text = match.start()  # Позиция кусочка аудио, интервал которого включает current_time
-                smil_headings = self.find_headings_by_prefix(smil_name)
-                last_h_position: int = 0  # Сохраняем позицию последнего заголовка, чтобы продолжить искать с нее
-                for h in smil_headings:
-                    h_href, h_text = h.group(1), h.group(
-                        2)  # Получаем ссылку вида "s0823.smil#tx24767" и текст вида "R"
-                    h_smil_name, h_text_id = h_href.split('#')
-                    id_position: int = get_id_position_in_text(h_text_id, smil_content)
-                    if id_position > position_in_text:  # Текст заголовка находится после конкретного match
-                        # Ищем следующий audio тег с позиции id_position
-                        next_match = re.search(patterns['get_audio_info'], smil_content[id_position:])
-                        if next_match:
-                            nav_text: NavItem = NavItem(current_audio_path, float(next_match.group(2)),
-                                                        float(next_match.group(3)), h_text)
-                            return nav_text
-                    last_h_position = h.start()
-                # Итак, мы не нашли подходящего заголовка в этом smil, идем в пункт 3
-                next_heading = self.find_next_prev_heading_from_position(last_h_position)
-                if next_heading:  # А может у нас уже был последний заголовок
-                    h_href, h_text = next_heading.group(1), next_heading.group(
-                        2)  # Получаем ссылку вида "s0823.smil#tx24767" и текст вида "R"
-                    h_smil_name, h_text_id = h_href.split('#')
-                    next_smil_content = try_open(self.get_smil_path(h_smil_name))
-                    next_audio_path: str = find_audio_name(self.get_smil_path(h_smil_name))
-                    next_id_position: int = get_id_position_in_text(h_text_id, next_smil_content)
-                    next_audio_match = re.search(patterns['get_audio_info'], next_smil_content[next_id_position:])
-                    if next_audio_match:
-                        nav_text: NavItem = NavItem(next_audio_path, float(next_audio_match.group(2)),
-                                                    float(next_audio_match.group(3)), h_text)
-                        return nav_text
+    def _get_next_heading_page(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
+        current_position, current_smil_name = self._audios_smils.get(current_audio_path)
+        for nav_match in self._search_blocks_v2.get(self._nav_option):
+            smil_name = nav_match.group(1)
+            if self._smils_positions.get(smil_name) == self._smils_positions.get(current_smil_name):
+                smil_content = try_open(f'{self.folder_path}/{smil_name}')
+                nav_id: str = nav_match.group(2)
+                nav_id_pos_in_smil: int = get_id_position_in_text(nav_id, smil_content)
+                next_audio_match = re.search(patterns['get_audio_info'], smil_content[nav_id_pos_in_smil:], re.DOTALL)
+                if next_audio_match:
+                    next_audio_begin = float(next_audio_match.group(2))
+                    if next_audio_begin > current_time:
+                        nav_text = nav_match.group(3)
+                        next_audio_src, next_audio_end = next_audio_match.group(1), float(next_audio_match.group(3))
+                        nav_item: NavItem = NavItem(next_audio_src, next_audio_begin, next_audio_end, nav_text)
+                        return nav_item
+            elif self._smils_positions.get(smil_name) > self._smils_positions.get(current_smil_name):
+                smil_content = try_open(f'{self.folder_path}/{smil_name}')
+                nav_id: str = nav_match.group(2)
+                nav_id_pos_in_smil: int = get_id_position_in_text(nav_id, smil_content)
+                first_nav_audio_match = re.search(patterns['get_audio_info'], smil_content[nav_id_pos_in_smil:],
+                                                  re.DOTALL)
+                if first_nav_audio_match:
+                    nav_text = nav_match.group(3)
+                    nav_item: NavItem = _get_nav_from_match_v202(first_nav_audio_match, nav_text)
+                    return nav_item
 
     def _get_prev_heading(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
-        """
-        Ищет audio тэг, в интервал которого попадает current_time.\n
-        Например, мы передали current_audio_path = 823_r.mp3, current_time = 453.
-        Соответствующий audio тег:
-        <audio src="823_r.mp3" clip-begin="npt=451.216s" clip-end="npt=453.219s" id="rgn_aud_0823_0337" />.
-        Сохраняем его положение в тексте. Соответствующий smil: s0823.smil\n
-        1. Смотрим в ncc.html на наличие тегов h* в этом smil. Находим:
-        ['<h2 id="cn23541"><a href="s0823.smil#tx24767">R</a></h2>']. Сохраняем название: R\n
-        2. Ищем элемент с id=tx24767 в файле s0823.smil. Он находится раньше
-        (по положению в тексте), а, значит, отлично подходит
-        <text src="fp2003_rearmatter.html#cn23541" id="tx24767" />\n
-        3. Находим следующий audio тег
-        <audio src="823_r.mp3" clip-begin="npt=0.000s" clip-end="npt=0.486s" id="rgn_aud_0823_0001" />\n
-        """
-        # 1) Находим соответствующий аудио кусочек в соответствующем smil (current_time в интервале) и берем позицию
-        smil_content, position, smil_name = self._get_smil_content_position_name(current_audio_path)
-        matches = re.finditer(patterns['get_audio_info'], smil_content)
-        audio_chunk_pos: Optional[int] = None
-        for match in matches:
-            clip_begin = float(match.group(2))
-            clip_end = float(match.group(3))
-            if clip_begin <= current_time < clip_end:
-                audio_chunk_pos = match.start()
-                break
-        # 2) Находим предыдущий аудио кусочек в соответствующем smil. TODO: Если его нет - продолжаем с п.10
-        prev_audio_chunk_pos: Optional[int] = None
-        if audio_chunk_pos:
-            matches = re.finditer(patterns['get_audio_info'], smil_content[:audio_chunk_pos])
-            try:
-                *_, last = matches
-                if last:
-                    # 3) Сохраняем позицию (старт) кусочка из п.2
-                    prev_audio_chunk_pos = last.start()
-            except ValueError:
-                pass
-        if prev_audio_chunk_pos:
-            # 4) Ищем в ncc.html заголовки, принадлежащие smil из п.1
-            smil_headings = self.find_headings_by_prefix(smil_name)
-            # 5) Получаем из ссылки каждого заголовка текст и id элемента в smil из п.1
-            for h in smil_headings:
-                h_text_id, h_text = h.group(1).split('#')[-1], h.group(2)
-                # 6) Ищем позицию id из п.5 в smil из п.1
-                h_text_id_pos: int = get_id_position_in_text(h_text_id, smil_content)
-                # 7) Если позиция из п.6 выше позиции из п.3 - прерываем цикл. TODO Продолжаем с п.10
-                if h_text_id_pos > prev_audio_chunk_pos:
-                    break
-                # 8) Если позиция из п.6 ниже позиции из п.3 - находим в smil из п.1 следующий аудио кусочек,
-                # начиная с позиции из п.6
-                elif h_text_id_pos < prev_audio_chunk_pos:
-                    next_audio_chunk = re.search(patterns['get_audio_info'], smil_content[h_text_id_pos:])
-                    # 9) Возвращаем соответствующий NavText INFO: основной вариант окончен
-                    nav_text: NavItem = NavItem(current_audio_path, float(next_audio_chunk.group(2)),
-                                                float(next_audio_chunk.group(3)), h_text)
-                    return nav_text
-        # 10) Находим предыдущий audio_path относительно current_audio_path. Если его нет - возвращаем None INFO: конец
-        search_position = position
-        prev_heading, prev_audio_path, prev_smil_content, prev_smil_name = None, None, None, None
-        while search_position != 0:
-            prev_audio_path = self._positions_audios.get(search_position - 1)
-            if not prev_audio_path:
-                return None
-            # 11) Находим smil, соответствующий audio_path из п.10
-            prev_smil_content, _, prev_smil_name = self._get_smil_content_position_name(prev_audio_path)
-            # 12) Находим последний заголовок, принадлежащий smil из п.11
-            prev_smil_headings = self.find_headings_by_prefix(prev_smil_name)
-            *_, last = prev_smil_headings
-            if last:
-                prev_heading = last
-                break
-        if not prev_heading:
+        current_position, current_smil_name = self._audios_smils.get(current_audio_path)
+        current_smil_headings = find_headings_list_by_smil_name(self._ncc_content, current_smil_name)
+        if len(current_smil_headings) > 0:
+            # Найдены заголовки для соответствующего smil, начинаем искать с конца
+            current_smil_content = try_open(self.get_smil_path(current_smil_name))
+            for heading in reversed(current_smil_headings):
+                nav_id = heading[0]
+                nav_id_pos_in_smil = get_id_position_in_text(nav_id, current_smil_content)
+                nav_audio = re.search(patterns['get_audio_info'], current_smil_content[nav_id_pos_in_smil:], re.DOTALL)
+                if nav_audio:
+                    nav_audio_end = float(nav_audio.group(3))
+                    if nav_audio_end < current_time:
+                        nav_item: NavItem = _get_nav_from_match_v202(nav_audio, heading[1])
+                        return nav_item
+        # Не нашли подходящий заголовок для данного smil, ищем первый предыдущий
+        start_position = current_position
+        while start_position > 1:
+            prev_audio_path = self._positions_audios.get(start_position - 1)
+            _, prev_smil_name = self._audios_smils.get(prev_audio_path)
+            prev_smil_headings = find_headings_list_by_smil_name(self._ncc_content, prev_smil_name)
+            if len(prev_smil_headings) > 0:
+                prev_heading = prev_smil_headings[-1]
+                prev_smil_content = try_open(self.get_smil_path(prev_smil_name))
+                nav_id = prev_heading[0]
+                nav_id_pos_in_smil = get_id_position_in_text(nav_id, prev_smil_content, prev_smil_name)
+                nav_audio = re.search(patterns['get_audio_info'], prev_smil_content[nav_id_pos_in_smil:], re.DOTALL)
+                if nav_audio:
+                    nav_item: NavItem = _get_nav_from_match_v202(nav_audio, prev_heading[1])
+                    return nav_item
+
+    def _get_next_prev_phrase(self, current_audio_path: str, current_time: float, direction: DIRECTION = 1) -> Optional[
+        NavItem]:
+        current_audio_position, current_smil = self._audios_smils.get(current_audio_path)
+        current_smil_content = try_open(f'{self.folder_path}/{current_smil}')
+        current_smil_audios_iter = re.finditer(patterns['get_audio_info'], current_smil_content, re.DOTALL)
+        for cur, nex in _pairwise(current_smil_audios_iter):
+            current_phrase, next_phrase = (cur, nex) if direction == 1 else (nex, cur)
+            cur_time_begin = float(current_phrase.group(2))
+            cur_time_end = float(current_phrase.group(3))
+            if cur_time_begin <= current_time < cur_time_end:
+                nav_item: NavItem = _get_nav_from_match_v202(next_phrase)
+                return nav_item
+        next_audio_path = self._positions_audios.get(current_audio_position + direction)
+        if not next_audio_path:
             return None
-        # 13) Получаем его текст и id элемента в smil из п.11
-        h_text_id, h_text = prev_heading.group(1).split('#')[-1], prev_heading.group(2)
-        # 14) Ищем позицию id из п.13 в smil из п.11
-        h_text_id_pos_in_smil: int = get_id_position_in_text(h_text_id, prev_smil_content)
-        # 15) Находим в smil из п.11 следующий аудио кусочек, начиная с позиции из п.14
-        next_audio_match = re.search(patterns['get_audio_info'], smil_content[h_text_id_pos_in_smil:])
-        # 16) Возвращаем соответствующий NavText INFO: конец
-        nav_text: NavItem = NavItem(prev_audio_path, float(next_audio_match.group(2)),
-                                    float(next_audio_match.group(3)), h_text)
-        return nav_text
-
-    def _get_next_phrase(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
-        """
-        Ищет audio тэг, в интервал которого попадает current_time.\n
-        1. Для следующего audio тега возвращает имя mp3, время начала и время конца.\n
-        2. Если следующий audio тег не найден - ищет в следующем по порядку smil файле.\n
-        3. Если первоначальный smil был последним - возвращает None
-        """
-        smil_content, position, _ = self._get_smil_content_position_name(current_audio_path)
-        matches = re.finditer(patterns['get_audio_info'], smil_content)
-        for match in matches:
-            clip_begin = float(match.group(2))
-            clip_end = float(match.group(3))
-            if clip_begin <= current_time < clip_end:
-                try:
-                    next_match = next(matches)
-                    return NavItem(next_match.group(1), float(next_match.group(2)),
-                                   float(next_match.group(3)))  # 1 вариант
-                except StopIteration:
-                    next_audio_path: str = self._positions_audios.get(position + 1)
-                    if next_audio_path:
-                        next_smil_content, _, _ = self._get_smil_content_position_name(next_audio_path)
-                        next_audio_info = re.search(patterns['get_audio_info'], next_smil_content)
-                        if next_audio_info:
-                            return NavItem(next_audio_info.group(1), float(next_audio_info.group(2)),
-                                           float(next_audio_info.group(3)))  # 2 вариант
-
-    def _get_prev_phrase(self, current_audio_path: str, current_time: float) -> Optional[NavItem]:
-        """Ищет audio тэг, в интервал которого попадает current_time.\n
-        1. Для предыдущего audio тега возвращает имя mp3, время начала и время конца.\n
-        2. Если предыдущий audio тег не найден - ищет в предыдущем по порядку smil файле.\n
-        3. Если первоначальный smil был первым - возвращает None"""
-        check_first_audio: bool = True
-        smil_content, position, _ = self._get_smil_content_position_name(current_audio_path)
-        matches = re.finditer(patterns['get_audio_info'], smil_content)
-        for match, next_match in _pairwise(matches):
-            if check_first_audio:
-                clip_begin = float(match.group(2))
-                clip_end = float(match.group(3))
-                if clip_begin <= current_time < clip_end:
-                    if position > 1:
-                        prev_audio_path: str = self._positions_audios.get(position - 1)
-                        if prev_audio_path:
-                            prev_smil_content, _, _ = self._get_smil_content_position_name(prev_audio_path)
-                            next_matches = re.finditer(patterns['get_audio_info'], prev_smil_content)
-                            *_, last = next_matches
-                            return NavItem(last.group(1), float(last.group(2)), float(last.group(3)))  # 2 вариант
-            if next_match:
-                clip_begin = float(next_match.group(2))
-                clip_end = float(next_match.group(3))
-                if clip_begin <= current_time < clip_end:
-                    return NavItem(match.group(1), float(match.group(2)), float(match.group(3)))  # 1 вариант
+        _, next_smil = self._audios_smils.get(next_audio_path)
+        next_smil_content = try_open(f'{self.folder_path}/{next_smil}')
+        if direction == 1:
+            next_phrase_match = re.search(patterns['get_audio_info'], next_smil_content, re.DOTALL)
+        else:
+            next_smil_phrases_iter = re.finditer(patterns['get_audio_info'], next_smil_content, re.DOTALL)
+            *_, next_phrase_match = next_smil_phrases_iter
+        if next_phrase_match:
+            nav_item: NavItem = _get_nav_from_match_v202(next_phrase_match)
+            return nav_item

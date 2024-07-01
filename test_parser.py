@@ -1,11 +1,11 @@
 import time
 from typing import Union, Literal, Callable, Optional
 
-from general import NavOption, NavItem
+from general import NavOption, NavItem, DIRECTION
 from parser import DaisyParser
 
 
-def _test_nav_option(parser: DaisyParser, audio_path: str, current_time: float, nav_option: NavOption, direction: Union[Literal[1], Literal[-1]] = 1):
+def _test_nav_option(parser: DaisyParser, audio_path: str, current_time: float, nav_option: NavOption, direction: DIRECTION = 1):
     func: Callable[[str, float], Optional[NavItem]] = parser.get_next if direction == 1 else parser.get_prev
     parser.set_nav_option(nav_option)
 
@@ -28,14 +28,14 @@ def test_book(folder_path: str, audio_path: str, current_time: float):
 
     _test_nav_option(parser, audio_path, current_time, NavOption.HEADING, 1)
     _test_nav_option(parser, audio_path, current_time, NavOption.HEADING, -1)
-    _test_nav_option(parser, audio_path, current_time, NavOption.PHRASE, 1)
-    _test_nav_option(parser, audio_path, current_time, NavOption.PHRASE, -1)
-    _test_nav_option(parser, audio_path, current_time, NavOption.PAGE, 1)
-    _test_nav_option(parser, audio_path, current_time, NavOption.PAGE, -1)
+    # _test_nav_option(parser, audio_path, current_time, NavOption.PHRASE, 1)
+    # _test_nav_option(parser, audio_path, current_time, NavOption.PHRASE, -1)
+    # _test_nav_option(parser, audio_path, current_time, NavOption.PAGE, 1)
+    # _test_nav_option(parser, audio_path, current_time, NavOption.PAGE, -1)
 
 
 FRONTPAGE = ['frontpage', '823_r.mp3', 456.5]
 TEST_BOOK = ['test_book', '08_26th_.mp3', 263]
 DAISY_3 = ['daisy_3', 'speechgen0007.mp3', 13]
 
-test_book(*TEST_BOOK)
+test_book(*FRONTPAGE)

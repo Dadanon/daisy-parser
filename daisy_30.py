@@ -12,7 +12,7 @@ def _get_smil_name_from_manifest(_opf_name: str, manifest_content: str, smil_id:
     return smil_name.group(1)
 
 
-def _get_nav_page_heading_from_match(page_match: Any) -> Optional[NavItem]:
+def _get_nav_page_heading_from_match_v30(page_match: Any) -> Optional[NavItem]:
     """Работает с _pairwise (match) и с _pairwise_list (tuple)"""
     if isinstance(page_match, tuple):
         text, page_audio_info = page_match[0].strip(), page_match[1]
@@ -30,7 +30,7 @@ def _get_nav_page_heading_from_match(page_match: Any) -> Optional[NavItem]:
         return NavItem(src, time_begin, time_end, text)
 
 
-def _get_nav_phrase_from_match(phrase_match: re.Match) -> Optional[NavItem]:
+def _get_nav_phrase_from_match_v30(phrase_match: re.Match) -> Optional[NavItem]:
     page_audio_info = phrase_match.group(1)
     time_begin_str_match = re.search(patterns['get_clip_begin'], page_audio_info)
     time_end_str_match = re.search(patterns['get_clip_end'], page_audio_info)
