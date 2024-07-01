@@ -16,3 +16,8 @@ def find_headings_list_by_smil_name(ncc_content: str, smil_name: str) -> List:
     return re.findall(pattern, ncc_content, re.DOTALL)
 
 
+def find_pages_list_by_smil_name(ncc_content: str, smil_name: str) -> List:
+    pattern = rf'<span[^>].*?><a href="{smil_name}#([^"].*?)">([^<].*?)</a></span>'
+    return re.findall(pattern, ncc_content)
+
+

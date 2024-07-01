@@ -1,5 +1,5 @@
 import time
-from typing import Union, Literal, Callable, Optional
+from typing import Callable, Optional
 
 from general import NavOption, NavItem, DIRECTION
 from parser import DaisyParser
@@ -28,14 +28,14 @@ def test_book(folder_path: str, audio_path: str, current_time: float):
 
     _test_nav_option(parser, audio_path, current_time, NavOption.HEADING, 1)
     _test_nav_option(parser, audio_path, current_time, NavOption.HEADING, -1)
-    # _test_nav_option(parser, audio_path, current_time, NavOption.PHRASE, 1)
-    # _test_nav_option(parser, audio_path, current_time, NavOption.PHRASE, -1)
-    # _test_nav_option(parser, audio_path, current_time, NavOption.PAGE, 1)
-    # _test_nav_option(parser, audio_path, current_time, NavOption.PAGE, -1)
+    _test_nav_option(parser, audio_path, current_time, NavOption.PHRASE, 1)
+    _test_nav_option(parser, audio_path, current_time, NavOption.PHRASE, -1)
+    _test_nav_option(parser, audio_path, current_time, NavOption.PAGE, 1)
+    _test_nav_option(parser, audio_path, current_time, NavOption.PAGE, -1)
 
 
 FRONTPAGE = ['frontpage', '823_r.mp3', 456.5]
 TEST_BOOK = ['test_book', '08_26th_.mp3', 263]
 DAISY_3 = ['daisy_3', 'speechgen0007.mp3', 13]
 
-test_book(*FRONTPAGE)
+test_book(*TEST_BOOK)
