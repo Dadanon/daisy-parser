@@ -46,7 +46,7 @@ class DaisyParser:
         self._pages_list = None
         self._smils_positions = {}
         version = '2.02' if os.path.exists(f'{folder_path}/ncc.html') else '3.0'
-        self.set_daisy_version(version)
+        self._set_daisy_version(version)
         start_time = time.time()
         self.folder_path = folder_path
         self._nav_option = NavOption.PHRASE
@@ -65,6 +65,20 @@ class DaisyParser:
         }
         end_time = time.time()
         print(f'\nTotal parse time: {end_time - start_time:0.4f} seconds\n')
+
+    def get_creator_and_title(self):
+        print(f'Getting creator and title, version: {self.version}')
+        if self.version == '2.02':
+            creator = re.search(patterns['get_author_name'], self._ncc_content, re.DOTALL)
+            title = re.search(patterns['get_book_title'], self._ncc_content, re.DOTALL)
+            if creator and title:
+                return {"creator": creator.group(1), "title": title.group(1)}
+        elif self.version == '3.0':
+            creator = re.search(patterns['get_author_name_v3'], self._opf_content, re.DOTALL)
+            title = re.search(patterns['get_book_title_v3'], self._opf_content, re.DOTALL)
+            if creator and title:
+                return {"creator": creator.group(1), "title": title.group(1)}
+        return {}
 
     def get_audio_path_index(self, audio_path: str) -> int:
         received_audio_index = None
@@ -247,7 +261,7 @@ class DaisyParser:
         """
         self._nav_option = nav_option
 
-    def set_daisy_version(self, version: str):
+    def _set_daisy_version(self, version: str):
         if version in DAISY_VERSIONS:
             self.version = version
         else:

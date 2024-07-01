@@ -26,6 +26,7 @@ def _test_nav_option(parser: DaisyParser, audio_path: str, current_time: float, 
 
 def test_book(folder_path: str, audio_path: str, current_time: float):
     parser = DaisyParser(folder_path)
+    print(parser.get_creator_and_title())
 
     _test_nav_option(parser, audio_path, current_time, NavOption.HEADING, 1)
     _test_nav_option(parser, audio_path, current_time, NavOption.HEADING, -1)

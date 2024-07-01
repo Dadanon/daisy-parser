@@ -15,6 +15,8 @@ patterns = {
     'get_pages': r'<span[^>].*?><a href="([^"#].*?)#([^"].*?)">([^<].*?)</a></span>',
     'get_headings_new': r'<h[1-6][^>].*?>(.*?)</h[1-6]>',
     'get_pages_new': r'<span[^>].*?>(.*?)</span>',
+    'get_author_name': r'<meta name="dc:creator" content="(.*?)"/>',
+    'get_book_title': r'<meta name="dc:title" content="(.*?)"/>',
     # INFO: шаблоны для 3 версии
     'get_spine_content': r'<spine>(.*?)</spine>',  # Получаем содержимое блока spine
     'get_spine_ordered_items': r'idref="(.*?)"',  # Получаем список id smil по порядку в виде ['smil-1', smil-2'...]
@@ -28,7 +30,9 @@ patterns = {
     'get_nav_map_block': r'<navMap.*?>(.*?)</navMap>',
     'get_nav_points': r'<navPoint class="h[1-6][^>].*?>[^<].*?<navLabel>[^<].*?<text>([^<].*?)</text>[^<].*?<audio([^<].*?)/>',
     # Получить информацию по страницам
-    'get_smil_audio_list': r'<audio([^/].*?)/>'
+    'get_smil_audio_list': r'<audio([^/].*?)/>',
+    'get_author_name_v3': r'<dc:Creator>([^<].*?)</dc:Creator>',
+    'get_book_title_v3': r'<dc:Title>([^<].*?)</dc:Title>'
 }
 
 
@@ -36,7 +40,6 @@ DIRECTION = Union[Literal[1], Literal[-1]]
 
 
 class NavItem:
-    """Получаем путь к аудио, время начала, время конца, текст заголовка или страницы"""
     audio_path: str
     start_time: float
     end_time: float
