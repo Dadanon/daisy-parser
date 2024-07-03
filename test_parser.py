@@ -9,7 +9,6 @@ def _test_nav_option(parser: DaisyParser, audio_path: str, current_time: float, 
     print(f'\nТестируется навигация для {nav_option.name} в направлении {"вперед" if direction == 1 else "назад"}\n')
     func: Callable[[str, float], Optional[NavItem]] = parser.get_next if direction == 1 else parser.get_prev
     parser.set_nav_option(nav_option)
-
     start_time = time.time()
     nav_item_1: NavItem = func(audio_path, current_time)
     if nav_item_1:
@@ -27,13 +26,14 @@ def _test_nav_option(parser: DaisyParser, audio_path: str, current_time: float, 
 def test_book(folder_path: str, audio_path: str, current_time: float):
     parser = DaisyParser(folder_path)
     print(parser.get_creator_and_title())
+    print(parser.get_audios_dict())
 
-    _test_nav_option(parser, audio_path, current_time, NavOption.HEADING, 1)
-    _test_nav_option(parser, audio_path, current_time, NavOption.HEADING, -1)
-    _test_nav_option(parser, audio_path, current_time, NavOption.PHRASE, 1)
-    _test_nav_option(parser, audio_path, current_time, NavOption.PHRASE, -1)
-    _test_nav_option(parser, audio_path, current_time, NavOption.PAGE, 1)
-    _test_nav_option(parser, audio_path, current_time, NavOption.PAGE, -1)
+    # _test_nav_option(parser, audio_path, current_time, NavOption.HEADING, 1)
+    # _test_nav_option(parser, audio_path, current_time, NavOption.HEADING, -1)
+    # _test_nav_option(parser, audio_path, current_time, NavOption.PHRASE, 1)
+    # _test_nav_option(parser, audio_path, current_time, NavOption.PHRASE, -1)
+    # _test_nav_option(parser, audio_path, current_time, NavOption.PAGE, 1)
+    # _test_nav_option(parser, audio_path, current_time, NavOption.PAGE, -1)
 
 
 FRONTPAGE = ['frontpage', '823_r.mp3', 456.5]

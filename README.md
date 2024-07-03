@@ -17,16 +17,16 @@ get_creator_and_title() -> dict
 ```
 {'creator': 'creator', 'title': 'title'}
 ```
-либо пустой словарь, если не удалось определить версию  
-или найти метаданные
-### 2. Получить список аудио в правильном порядке
+либо пустой словарь, если не удалось определить версию или найти метаданные
+### 2. Получить словарь аудио в правильном порядке
 ```
-get_audios_list() -> list[str]
+get_audios_dict() -> dict[str, float]
 ```
 Возвращает словарь вида
 ```
-['audio_1.mp3', 'audio_2.mp3', 'audio_3.mp3']
+{'bagw0019.mp3': 0.0, 'bagw001A.mp3': 30.0, 'bagw001B.mp3': 52.0, 'bagw0014.mp3': 99.0, 'bagw0018.mp3': 165.0, 'bagw001C.mp3': 175.0, 'bagw0017.mp3': 251.0, 'bagw001D.mp3': 272.0}
 ```
+где ключ - название аудио, значение - время от начала книги до начала данного аудио
 ### 3. Установить опцию навигации (страница, заголовок, фраза)  
 ```
 set_nav_option(nav_option: NavOption) -> None
@@ -50,16 +50,19 @@ class NavItem:
     text: str
 ```
 Принимает параметры:
+
 - current_audio_path: str - путь к текущему проигрываемому MP3-файлу (относительно папки)
 - current_time: float - текущее время от начала проигрывания данного MP3-файла
+
 Возвращает:
+
 - объект навигации в виде
 ```
 {'audio_path': 'bagw0014.mp3', 'start_time': 63.957, 'end_time': 65.304, 'text': '5'}
 ```
-или None, если current_audio_path последний в списке, а current_time - последняя фраза в current_audio_path  
+- None, если current_audio_path последний в списке, а current_time - последняя фраза в current_audio_path  
 
-Параметры
+Параметры ответа:
 - text: str - опциональный (только для Heading и Page, для Phrase - пустая строка)
 - audio_path: str - путь к MP3-файлу, в котором находится следующий объект навигации
 - start_time: str - время начала следующего объекта навигации в audio_path
@@ -78,14 +81,16 @@ class NavItem:
 Принимает параметры:
 - current_audio_path: str - путь к текущему проигрываемому MP3-файлу (относительно папки)
 - current_time: float - текущее время от начала проигрывания данного MP3-файла
+
 Возвращает:
+
 - объект навигации в виде
 ```
 {'audio_path': 'bagw0014.mp3', 'start_time': 63.957, 'end_time': 65.304, 'text': '5'}
 ```
-или None, если current_audio_path первый в списке, а current_time - первая фраза в current_audio_path
+- None, если current_audio_path первый в списке, а current_time - первая фраза в current_audio_path
 
-Параметры
+Параметры ответа:
 - text: str - опциональный (только для Heading и Page, для Phrase - пустая строка)
 - audio_path: str - путь к MP3-файлу, в котором находится предыдущий объект навигации
 - start_time: str - время начала предыдущего объекта навигации в audio_path

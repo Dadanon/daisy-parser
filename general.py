@@ -1,15 +1,13 @@
 import itertools
 import re
 from enum import IntEnum
-from typing import Optional, Union, Literal
+from typing import Optional, Union, Literal, List
 
 patterns = {
     'get_audio_src': r'<audio[^>]*\ssrc="([^"]+)"',  # Получаем значение атрибута src в теге audio
     'get_smil_name': r'href="([^"]+\.smil)#',  # Получаем название smil из ncc.html в виде s0002.smil
     'get_audio_info': r'<audio[^>]*src="([^"]+)"[^>]*clip-begin="npt=([0-9]+(?:\.[0-9]*)?)s"[^>]*clip-end="npt=([0-9]+(?:\.[0-9]*)?)s"[^>]*>',
     # Получаем временной интервал'
-    'get_all_pages': r'<span class="[^"]*" id="[^"]*"><a href="([^"]*)">([^<]*)</a></span>',
-    # Получаем список всех страниц
     'get_headings': r'<h[1-6][^>].*?><a href="([^"#].*?)#([^"].*?)">([^<].*?)</a></h[1-6]>',
     # Получаем список заголовков в формате [('icth0001.smil', 'icth0001', 'A light Man'), ('icth0002.smil', 'icth_0001', 'Epigraph')...]
     'get_pages': r'<span[^>].*?><a href="([^"#].*?)#([^"].*?)">([^<].*?)</a></span>',
@@ -17,6 +15,8 @@ patterns = {
     'get_pages_new': r'<span[^>].*?>(.*?)</span>',
     'get_author_name': r'<meta name="dc:creator" content="(.*?)"/>',
     'get_book_title': r'<meta name="dc:title" content="(.*?)"/>',
+    'get_groups': r'<div.*?>.*?<a\s+href="([^#].*?)#([^"].*?)">(.*?)</a>',
+    'get_elapsed_time': r'<meta name="ncc:totalElapsedTime" content="([^"].*?)"\s?/>',
     # INFO: шаблоны для 3 версии
     'get_spine_content': r'<spine>(.*?)</spine>',  # Получаем содержимое блока spine
     'get_spine_ordered_items': r'idref="(.*?)"',  # Получаем список id smil по порядку в виде ['smil-1', smil-2'...]
@@ -118,3 +118,14 @@ def try_open(file_path) -> str:
         except (UnicodeDecodeError, LookupError):
             continue
     raise Exception(f"Кодировка файла {file_path} не найдена в списке {encodings}")
+
+
+def _get_group_anchors_for_smil_in_html(smil_name: str, html_content: str) -> List[re.Match[str]]:
+    """
+    Получить anchors для групп данного smil_name внутри указанного html_content
+    :param smil_name: имя smil, для которого мы ищем вхождения групп внутри html_content
+    :param html_content: собственно сам контент html файла
+    :return: список re.Match
+    """
+    pattern = rf'<div.*?>.*?<a\s+href="{smil_name}#([^"].*?)">(.*?)</a>'
+    return re.findall(pattern, html_content, re.DOTALL)
