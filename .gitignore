@@ -1,9 +1,13 @@
 .venv/
+.idea/
+__pycache__/
+# Books block
 frontpage/
 test_book/
 daisy_3/
 mountains_skip/
 fire_safety/
 treaty_fileset/
-.idea/
-__pycache__/
+ruby/
+# Тестовая книга с группами
+test_book_with_groups/

@@ -15,7 +15,7 @@ patterns = {
     'get_pages_new': r'<span[^>].*?>(.*?)</span>',
     'get_author_name': r'<meta name="dc:creator" content="(.*?)"/>',
     'get_book_title': r'<meta name="dc:title" content="(.*?)"/>',
-    'get_groups': r'<div.*?>.*?<a\s+href="([^#].*?)#([^"].*?)">(.*?)</a>',
+    'get_groups': r'<div.*?class="group"><a href="([^"].*?)#([^"].*?)">(.*?)</a></div>',
     'get_elapsed_time_content': r'content="([^"].*?)"',
     # INFO: шаблоны для 3 версии
     'get_spine_content': r'<spine>(.*?)</spine>',  # Получаем содержимое блока spine
@@ -56,6 +56,7 @@ class NavOption(IntEnum):
     PHRASE = 0
     HEADING = 1
     PAGE = 2
+    GROUP = 3
 
 
 DAISY_VERSIONS = ['2.0', '2.02', '3.0']

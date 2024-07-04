@@ -40,3 +40,12 @@ def _get_nav_phrase_from_match_v30(phrase_match: re.Match) -> Optional[NavItem]:
         time_begin = time_str_to_seconds(time_begin_str_match.group(1))
         time_end = time_str_to_seconds(time_end_str_match.group(1))
         return NavItem(src, time_begin, time_end)
+
+
+def _get_nav_item_from_nav_point_if_end_time_is_good(nav_point, current_time: float) -> Optional[NavItem]:
+    nav_audio_end_match = re.search(patterns['get_clip_end'], nav_point[1], re.DOTALL)
+    if not nav_audio_end_match:
+        return None
+    nav_audio_end = time_str_to_seconds(nav_audio_end_match.group(1))
+    if nav_audio_end <= current_time:
+        return _get_nav_page_heading_from_match_v30(nav_point)
