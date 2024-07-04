@@ -25,8 +25,9 @@ def _test_nav_option(parser: DaisyParser, audio_path: str, current_time: float, 
 
 def test_book(folder_path: str, audio_path: str, current_time: float):
     parser = DaisyParser(folder_path)
-    # print(parser.get_creator_and_title())
-    # print(parser.get_audios_dict())
+    print(parser.get_creator_and_title())
+    print(parser.get_audios_dict())
+    print(parser.get_total_time())
 
     _test_nav_option(parser, audio_path, current_time, NavOption.HEADING, 1)
     _test_nav_option(parser, audio_path, current_time, NavOption.HEADING, -1)
@@ -45,4 +46,4 @@ MOUNTAINS_SKIP = ['mountains_skip', 'bagw0014.mp3', 17]
 RUBY = ['ruby', 'hotl0008.mp3', 15]
 TEST_BOOK_WITH_GROUPS = ['test_book_with_groups', '06_19th_.mp3', 150]
 
-test_book(*TEST_BOOK_WITH_GROUPS)
+test_book(*MOUNTAINS_SKIP)

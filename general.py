@@ -17,6 +17,7 @@ patterns = {
     'get_book_title': r'<meta name="dc:title" content="(.*?)"/>',
     'get_groups': r'<div.*?class="group"><a href="([^"].*?)#([^"].*?)">(.*?)</a></div>',
     'get_elapsed_time_content': r'content="([^"].*?)"',
+    'get_total_time': r'<meta name="ncc:totalTime" content="([^"].*?)"',
     # INFO: шаблоны для 3 версии
     'get_spine_content': r'<spine>(.*?)</spine>',  # Получаем содержимое блока spine
     'get_spine_ordered_items': r'idref="(.*?)"',  # Получаем список id smil по порядку в виде ['smil-1', smil-2'...]
@@ -32,7 +33,8 @@ patterns = {
     # Получить информацию по страницам
     'get_smil_audio_list': r'<audio([^/].*?)/>',
     'get_author_name_v3': r'<dc:Creator>([^<].*?)</dc:Creator>',
-    'get_book_title_v3': r'<dc:Title>([^<].*?)</dc:Title>'
+    'get_book_title_v3': r'<dc:Title>([^<].*?)</dc:Title>',
+    'get_total_time_v3': r'<meta content="([^"]+)" name="dtb:totalTime"/>'
 }
 
 

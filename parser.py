@@ -250,57 +250,6 @@ class DaisyParser:
                 if cur_audio_index == received_audio_index:
                     cur_nav_item: NavItem = _get_nav_item_from_nav_point_if_end_time_is_good(cur, current_time)
                     return cur_nav_item
-        # received_audio_index = self._get_audio_path_index(current_audio_path)
-        # for cur, nex in _pairwise_list(self._search_blocks.get(self._nav_option)):
-        #     nex_page_audio_info = nex[1]
-        #     nex_src_match = re.search(patterns['get_src'], nex_page_audio_info)
-        #     if nex_src_match:
-        #         nex_src = nex_src_match.group(1)
-        #         if self._get_audio_path_index(nex_src) == received_audio_index:
-        #             nex_time_end_str_match = re.search(patterns['get_clip_end'], nex_page_audio_info)
-        #             if nex_time_end_str_match:
-        #                 nex_time_end = time_str_to_seconds(nex_time_end_str_match.group(1))
-        #                 if nex_time_end <= current_time:
-        #                     nav_item = _get_nav_page_heading_from_match_v30(nex)
-        #                     return nav_item
-        #                 else:
-        #                     cur_page_audio_info = cur[1]
-        #                     cur_src_match = re.search(patterns['get_src'], cur_page_audio_info)
-        #                     if cur_src_match:
-        #                         cur_src = cur_src_match.group(1)
-        #                         cur_time_end_str_match = re.search(patterns['get_clip_end'], cur_page_audio_info)
-        #                         if cur_time_end_str_match:
-        #                             cur_time_end = time_str_to_seconds(cur_time_end_str_match.group(1))
-        #                             if self._get_audio_path_index(cur_src) == received_audio_index:
-        #                                 if cur_time_end <= current_time:
-        #                                     nav_item = _get_nav_page_heading_from_match_v30(cur)
-        #                                     return nav_item
-        #                                 else:
-        #                                     return None
-        #                             elif self._get_audio_path_index(cur_src) < received_audio_index:
-        #                                 nav_item = _get_nav_page_heading_from_match_v30(cur)
-        #                                 return nav_item
-        #                     nav_item = _get_nav_page_heading_from_match_v30(cur)
-        #                     return nav_item
-        #         elif self._get_audio_path_index(nex_src) > received_audio_index:
-        #             cur_page_audio_info = cur[1]
-        #             cur_src_match = re.search(patterns['get_src'], cur_page_audio_info)
-        #             if cur_src_match:
-        #                 cur_src = cur_src_match.group(1)
-        #                 if self._get_audio_path_index(cur_src) > received_audio_index:
-        #                     return None
-        #                 cur_time_end_str_match = re.search(patterns['get_clip_end'], cur_page_audio_info)
-        #                 if cur_time_end_str_match:
-        #                     cur_time_end = time_str_to_seconds(cur_time_end_str_match.group(1))
-        #                     if self._get_audio_path_index(cur_src) == received_audio_index:
-        #                         if cur_time_end <= current_time:
-        #                             nav_item = _get_nav_page_heading_from_match_v30(cur)
-        #                             return nav_item
-        #                         else:
-        #                             return None
-        #                     elif self._get_audio_path_index(cur_src) < received_audio_index:
-        #                         nav_item = _get_nav_page_heading_from_match_v30(cur)
-        #                         return nav_item
 
     def _get_phrase_from_smil_by_time(self, smil_name: str, current_time: float) -> Optional[re.Match[str]]:
         current_smil_content = try_open(self._get_file_path(smil_name))
@@ -500,6 +449,16 @@ class DaisyParser:
             if creator and title:
                 return {"creator": creator.group(1), "title": title.group(1)}
         return {}
+
+    def get_total_time(self) -> Optional[float]:
+        if self.version == '2.02':
+            total_time_match = re.search(patterns['get_total_time'], self._ncc_content, re.DOTALL)
+            if total_time_match:
+                return time_str_to_seconds(total_time_match.group(1))
+        elif self.version == '3.0':
+            total_time_match = re.search(patterns['get_total_time_v3'], self._opf_content, re.DOTALL)
+            if total_time_match:
+                return time_str_to_seconds(total_time_match.group(1))
 
     def get_audios_dict(self):
         pattern = rf'(<meta (content="[^"]*" name="dtb:totalElapsedTime"|name="{self._elapsed_time_prefix}:totalElapsedTime" content="[^"]*")\s?/>)'
