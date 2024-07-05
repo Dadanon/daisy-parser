@@ -461,21 +461,17 @@ class DaisyParser:
                 return time_str_to_seconds(total_time_match.group(1))
 
     def get_audios_dict(self):
-        pattern = rf'(<meta (content="[^"]*" name="dtb:totalElapsedTime"|name="{self._elapsed_time_prefix}:totalElapsedTime" content="[^"]*")\s?/>)'
+        pattern = patterns['get_smil_length'] if self.version == '2.02' else patterns['get_smil_length_v3']
         sorted_keys = iter(sorted(self._positions_audios))
         sorted_audios = [self._positions_audios.get(key) for key in sorted_keys]
         audios_with_time_from_start_dict = {}
         for audio in sorted_audios:
             _, smil_name = self._audios_smils.get(audio)
             smil_content = try_open(self._get_file_path(smil_name))
-            meta_with_elapsed_time_match = re.search(pattern, smil_content, re.DOTALL)
-            if not meta_with_elapsed_time_match:
-                raise ValueError(f'Отсутствует тег meta, который относится к elapsed time, в {smil_name}')
-            elapsed_time_str = re.search(patterns['get_elapsed_time_content'], meta_with_elapsed_time_match.group(0),
-                                         re.DOTALL)
-            if not elapsed_time_str:
-                raise ValueError(f'Отсутствует тег content внутри соответствующего meta тега в {smil_name}')
-            audios_with_time_from_start_dict[audio] = time_str_to_seconds(elapsed_time_str.group(1))
+            smil_time_match = re.search(pattern, smil_content, re.DOTALL)
+            if not smil_time_match:
+                raise ValueError(f'Отсутствует общее время фрагмента в {smil_name}')
+            audios_with_time_from_start_dict[audio] = round(time_str_to_seconds(smil_time_match.group(1)) * 1000)
         return audios_with_time_from_start_dict
 
     def set_nav_option(self, nav_option: NavOption):
